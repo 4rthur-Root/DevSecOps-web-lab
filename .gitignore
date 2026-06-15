@@ -1,0 +1,14 @@
+# Terraform
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+*.tfvars
+!example.tfvars
+
+# Ansible secrets (jamais en clair)
+ansible/group_vars/all/vault.yml
+
+# OS
+.DS_Store
+*.swp
