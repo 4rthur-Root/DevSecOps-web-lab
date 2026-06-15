@@ -1,0 +1,124 @@
+Résumé du projet 
+
+🎯 Nom du Projet : devsecops-web-lab
+Catchphrase : Automated deployment of a secured web stack using Terraform and Ansible, featuring a WAF, centralized security monitoring, and SOC-oriented attack simulation.
+
+🏗️ L'Architecture Cible
+Une infrastructure 100% locale (via le provider Docker de Terraform), isolée dans un réseau Docker dédié, composée de :
+
+OWASP Juice Shop : Application Web volontairement vulnérable (la cible).
+WAF (Nginx + ModSecurity + OWASP CRS) : Reverse proxy et pare-feu applicatif bloquant les attaques avant qu'elles n'atteignent l'appli.
+Base de données (MySQL) : Backend de l'application.
+Stack de Monitoring (Grafana + Loki + Promtail) : Centralisation et visualisation des logs de sécurité du WAF.
+⚙️ La Stack Technique & Répartition des Rôles
+Terraform (Le "Quoi") : Provisionne l'infra locale.
+Crée le réseau Docker devsecops-net.
+Lance les 5 conteneurs.
+Le plus pro : Montre les volumes pour le Grafana Provisioning (les datasources et dashboards se chargent tout seuls au démarrage, zéro clic manuel).
+Ansible (Le "Comment") : Configure la sécurité et les services.
+Configure le WAF (Active ModSecurity, configure Nginx en reverse proxy, formatte les logs en JSON pour Loki).
+Hardening de la base de données.
+Déploie et configure Promtail pour aspirer les logs du WAF.
+Le plus pro : Gère les secrets avec ansible-vault (mots de passe DB et Grafana chiffrés).
+🕵️‍♂️ La Valeur Ajoutée "SOC Analyst" (Mon orientation portfolio)
+L'infra n'est qu'un support. La vraie valeur réside dans l'exploitation sécurité que j'en fais :
+
+Simulation de la Kill Chain : J'attaque mon propre lab (Recon avec Nmap, Exploitation avec SQLi/SQLmap).
+Dashboarding Sécurité : Je construis un dashboard Grafana sur mesure avec des requêtes LogQL (Top IPs attaquantes, répartition des codes HTTP, Top des règles OWASP déclenchées).
+Analyse et Tuning : J'identifie un faux positif (une requête légitime bloquée par le WAF), je rédige une règle d'exception, et je l'injecte via Ansible pour corriger le tir.
+📦 Les Livrables Finaux (Le Repo GitHub)
+Un code Terraform et Ansible propre et documenté.
+Un dashboard Grafana versionné en JSON (IaC).
+Un script de simulation d'attaque (simulate_killchain.sh).
+Un rapport d'incident (incident-report.md) racontant l'attaque, sa détection, et sa remédiation.
+Un README.md magnifique avec le schéma d'architecture et des captures d'écran du dashboard Grafana avant/pendant l'attaque.
+
+
+PHASE 0 — Setup (Jour 1)
+├── Créer le repo GitHub + structure des dossiers
+├── Vérifier que Docker + Terraform + Ansible sont installés
+└── Tester que Juice Shop tourne manuellement (docker run rapide)
+
+PHASE 1 — Terraform (Jours 2-3)
+├── Provider Docker configuré
+├── Réseau Docker isolé "devsecops-net"
+├── Container Juice Shop
+├── Container MySQL
+├── Container WAF (Utilisation de l'image officielle owasp/modsecurity-crs - Ansible le configurera)
+├── Containers Loki + Grafana
+│ └── Montage des volumes locaux vers grafana/provisioning/ (pour l'IaC du dashboard)
+└── ✅ Livrable : terraform apply réussi, 5 containers up, Grafana accessible sur localhost avec la datasource Loki pré-configurée.
+
+PHASE 2 — Ansible (Jours 4-6)
+├── Génération de l'inventaire dynamique (ou script local pour lier Terraform à Ansible)
+├── Playbook 1 : WAF Configuration
+│ ├── Configurer le reverse proxy Nginx vers Juice Shop
+│ ├── Activer le format de log JSON (crucial pour Loki/LogQL)
+│ └── Injecter une règle d'exception custom (pour le faux positif de la Phase 3)
+├── Playbook 2 : DB Hardening
+│ └── Sécuriser l'instance MySQL
+└── Playbook 3 : Monitoring (Promtail)
+├── Configurer Promtail pour lire les logs du WAF
+└── Lancer le pipeline Promtail → Loki
+└── ✅ Livrable : Juice Shop accessible via le WAF, logs JSON remontent dans Grafana.
+
+PHASE 3 — SOC Layer & Kill Chain (Jours 7-8)
+├── Reconnaissance : Lancer un scan Nmap/Gobuster
+│ └── Observer les détections dans Grafana
+├── Exploitation : Lancer des attaques SQLi et XSS via navigateur et SQLmap
+│ └── Observer les règles OWASP CRS bloquer (Dashboard "Top Règles")
+├── Création du Dashboard Graphana : Écrire les requêtes LogQL pour les panels (Top IPs, Requêtes Bloquées, Règles déclenchées). Exporter le JSON dans le repo.
+├── Identification d'un Faux Positif (Ex: une requête légitime de Juice Shop bloquée par le WAF)
+└── Résolution : Modifier le fichier d'exception via Ansible et relancer le playbook
+└── ✅ Livrable : Dashboard fonctionnel, rapport d'incident rédigé, faux positif corrigé en IaC.
+
+PHASE 4 — Documentation & Sécurisation (Jours 9-10)
+├── Chiffrer les variables sensibles avec ansible-vault
+├── Ajouter les captures d'écran du dashboard (avant/après attaque) dans le README
+└── Nettoyage du code, vérification des dépendances
+└── ✅ Livrable : Repo propre, professionnel, "Portfolio-Ready".
+
+devsecops-web-lab/
+│
+├── terraform/                      # Infrastructure as Code
+│   ├── main.tf                     # Provider Docker, réseau, conteneurs
+│   ├── variables.tf                # Variables (avec sensitive = true)
+│   ├── outputs.tf                  # Output des IP pour l'inventaire
+│   └── grafana_provisioning/       # IaC pour Grafana (Le gros plus !)
+│       ├── datasources/            
+│       │   └── loki_datasource.yml # Connexion automatique Grafana -> Loki
+│       └── dashboards/             
+│           ├── dashboard_provider.yml # Config pour charger les JSON
+│           └── security_overview.json # Mon dashboard exporté (code source)
+│
+├── ansible/                        # Configuration Management
+│   ├── inventory.ini               # Généré par Terraform ou scripté
+│   ├── ansible.cfg                 # Config ansible
+│   ├── playbooks/
+│   │   ├── site.yml                # Playbook maître (include les autres)
+│   │   ├── waf-setup.yml           # Config ModSecurity, Nginx, logs JSON
+│   │   ├── db-hardening.yml        # Hardening MySQL
+│   │   └── monitoring.yml          # Config Promtail
+│   ├── roles/                      # (Optionnel si on fait des rôles aux playbooks plats)
+│   ├── group_vars/
+│   │   └── all/
+│   │       ├── vars.yml            # Variables normales
+│   │       └── vault.yml           # Variables chiffrées (ansible-vault)
+│   └── files/                      # Fichiers statiques à copier
+│       ├── waf/
+│       │   ├── nginx.conf          # Config Nginx en reverse proxy
+│       │   ├── modsec.conf         # Config ModSecurity
+│       │   └── exclusion_rules.conf # Règles anti-faux positifs (SOC Tuning)
+│       └── promtail/
+│           └── config.yml          # Pipeline de logs
+│
+├── attack_simulation/              # La touche SOC (Kill Chain)
+│   └── simulate_killchain.sh       # Script curl/nmap/sqlmap
+│
+├── docs/                           # Documentation
+│   ├── architecture.md             # Schéma Draw.io/Mermaid de l'archi
+│   └── incident-report.md          # Analyse SOC rédigée (Kill Chain, faux positifs)
+|   └── ISSUES.md                   # Gros soucis rencontrés et approche de solution
+│
+├── .gitignore                      # Ignorer vault.yml en clair, .terraform/, etc.
+└── README.md                       # La vitrine du projet (Wow effect assuré)
