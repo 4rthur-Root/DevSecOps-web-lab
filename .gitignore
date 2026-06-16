@@ -6,7 +6,7 @@ terraform.tfstate.backup
 *.tfvars
 !example.tfvars
 
-# Ansible secrets (jamais en clair)
+# Ansible secrets
 ansible/group_vars/all/vault.yml
 
 # OS
