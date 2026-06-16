@@ -1,3 +1,4 @@
+# Définition du bloc Terraform
 terraform {
   required_providers {
     docker = {
@@ -7,6 +8,7 @@ terraform {
   }
 }
 
+# Provider Docker/Podman
 provider "docker" {
   host = "unix:///run/user/1000/podman/podman.sock"
 }
@@ -51,7 +53,7 @@ resource "docker_container" "juiceshop" {
     name = docker_network.devsecops_net.name
   }
 
-  # Pas exposé directement — uniquement via le WAF
+  # Pas exposé directement - uniquement via le WAF
 }
 
 # MySQL
@@ -83,7 +85,7 @@ resource "docker_container" "waf" {
     external = 8080
   }
 
-  # Volume pour les logs — Ansible + Promtail liront ici
+  # Volume pour les logs - Ansible + Promtail liront ici
   volumes {
     host_path      = abspath("${path.module}/../logs/waf")
     container_path = "/var/log/nginx"
