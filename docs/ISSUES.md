@@ -79,3 +79,14 @@ Règle d'or en sécurité : les conteneurs "Hardened" ou "Rootless" utiliseront 
 
 ### Et avec Docker natif ?
 Le comportement aurait été **strictement identique** avec n'importe quelle version de Docker. Le transfert de port est une mécanique réseau universelle des conteneurs. Si on redirige du trafic vers un port où rien ne tourne, un `Connection reset` est le comportement standard d'une pile TCP/IP saine.
+
+
+### État final après résolution
+- Volume nommé `waf-logs` géré par Podman
+- Port mapping corrigé : `internal = 8080, external = 8080`
+- Validation : `curl -s http://localhost:8080 | grep -i "juice"` ✅
+- `podman ps` : 5 containers Up ✅
+
+
+
+![Running Containers](./evidences/Containers.png)
