@@ -18,6 +18,11 @@ resource "docker_network" "devsecops_net" {
   name = "devsecops-net"
 }
 
+# Volume pour les logs WAF
+resource "docker_volume" "waf_logs" {
+  name = "waf-logs"
+}
+
 # Images 
 resource "docker_image" "juiceshop" {
   name         = "bkimminich/juice-shop:latest"
@@ -81,13 +86,18 @@ resource "docker_container" "waf" {
   }
 
   ports {
-    internal = 80
+    internal = 8080
     external = 8080
   }
 
-  # Volume pour les logs - Ansible + Promtail liront ici
+  env = [
+    "BACKEND=http://juiceshop:3000",
+    "MODSEC_RULE_ENGINE=DetectionOnly",  # Mode détection d'abord, on activera le blocage via Ansible
+  ]
+
+  # Volume pour les logs - Promtail lira ici plus tard
   volumes {
-    host_path      = abspath("${path.module}/../logs/waf")
+    volume_name    = docker_volume.waf_logs.name
     container_path = "/var/log/nginx"
   }
 }
