@@ -123,3 +123,5 @@ L'approche de bootstrap via `raw` est pratique, mais dans une approche GitOps/De
 
 ### Ce qu'il faut en retenir
 Une architecture 100% conteneurisée révèle rapidement les prérequis cachés des outils de Configuration Management. Ansible n'est pas "magique" : il a besoin d'un environnement d'exécution (Python) sur ses cibles. Comprendre la différence entre un système Linux complet (VM) et un conteneur allégé est essentiel pour tout ingénieur DevOps/SecOps.
+
+![Pings réussis](./evidences/ping-reussi.png)
