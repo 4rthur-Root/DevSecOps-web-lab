@@ -1,6 +1,7 @@
 echo "== Test des installations =="
 ansible --version
 terraform --version
+podman --version
 
 echo "== Test socket podman =="
 echo $XDG_RUNTIME_DIR  # Doit retourner /run/user/1000 ou similaire
