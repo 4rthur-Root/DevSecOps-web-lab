@@ -1,0 +1,10 @@
+---
+# Playbook maître - Exécute toute la configuration dans l'ordre
+- name: "PHASE 0 - Bootstrap Python sur les cibles"
+  import_playbook: setup-python.yml
+
+- name: "PHASE 1 - Configuration du WAF"
+  import_playbook: waf-setup.yml
+
+- name: "PHASE 2 - Hardening de la base de données"
+  import_playbook: db-hardening.yml
