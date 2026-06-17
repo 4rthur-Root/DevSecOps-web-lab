@@ -362,3 +362,20 @@ Appliquer le principe du moindre privilège : seuls les utilisateurs/processus s
 
 ### État actuel dans ce projet
 Le mot de passe est géré via **Ansible Vault** (`vault.yml`) pour la partie configuration, ce qui est correct. La faiblesse réside côté Terraform : le mot de passe est passé via une variable d'environnement Docker. Pour un projet de portfolio, ce niveau est acceptable et documenté. Pour une mise en production réelle, les approches 1 ou 2 ci-dessus seraient obligatoires.
+
+
+## 11. Grafana : Provisioning automatique échoue (Permission denied)
+
+### Problème
+Le dossier `/etc/grafana/provisioning/datasources/` est inaccessible 
+en lecture depuis le container Grafana avec Podman rootless.
+
+### Solution de contournement
+Configuration manuelle de la datasource Loki via l'UI Grafana 
+(URL: http://loki:3100). La datasource est persistée dans le 
+volume Grafana interne.
+
+### Impact
+Mineur — la datasource est configurée et fonctionnelle. 
+Le fichier `loki_datasource.yml` reste dans le repo à titre 
+documentaire mais n'est pas chargé automatiquement avec Podman rootless.
