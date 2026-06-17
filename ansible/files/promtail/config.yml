@@ -1,0 +1,28 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: waf_access_logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: waf
+          container: waf
+          __path__: /var/log/nginx/access.log
+
+  - job_name: waf_error_logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: waf_errors
+          container: waf
+          __path__: /var/log/nginx/error.log
