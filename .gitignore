@@ -12,3 +12,6 @@ ansible/group_vars/all/vault.yml
 # OS
 .DS_Store
 *.swp
+
+# Pour moi
+plan.txt
