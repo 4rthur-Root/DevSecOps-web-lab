@@ -1,0 +1,60 @@
+---
+# Playbook pour le monitoring
+# Ici Promtail va récupérer les logs du WAF et les envoyer à Loki
+# Grafana me les affichera ensuite dans un dashboard
+- name: "Monitoring | Vérification pipeline Promtail → Loki"
+  hosts: waf
+  gather_facts: false
+
+  tasks:
+
+    - name: "MON | Vérifier que Promtail tourne"
+      shell: pgrep -f promtail
+      register: promtail_pid
+      changed_when: false
+      failed_when: promtail_pid.rc != 0
+
+    - name: "MON | Afficher le PID de Promtail"
+      debug:
+        msg: "Promtail actif — PID : {{ promtail_pid.stdout }}"
+
+    - name: "MON | Vérifier que le fichier de log WAF existe et n'est pas vide"
+      stat:
+        path: /var/log/nginx/access.log
+      register: log_file
+
+    - name: "MON | Résultat vérification log"
+      debug:
+        msg: >
+          Log WAF : {{ 'EXISTS' if log_file.stat.exists else 'MISSING' }} |
+          Taille : {{ log_file.stat.size | default(0) }} bytes
+
+    - name: "MON | Générer une entrée de log test"
+      uri:
+        url: "http://localhost:8080/rest/products/search?q=monitoring-test"
+        method: GET
+      delegate_to: localhost
+      changed_when: false
+      failed_when: false
+
+    - name: "MON | Lire les 3 dernières lignes du log (vérification JSON)"
+      command: tail -3 /var/log/nginx/access.log
+      register: last_logs
+      changed_when: false
+
+    - name: "MON | Afficher les derniers logs"
+      debug:
+        var: last_logs.stdout_lines
+
+    - name: "MON | Vérifier que Loki est joignable depuis le WAF"
+      uri:
+        url: "http://loki:3100/ready"
+        method: GET
+      register: loki_health
+      delegate_to: localhost
+      changed_when: false
+      failed_when: false
+
+    - name: "MON | Statut Loki"
+      debug:
+        msg: "Loki status : {{ loki_health.status | default('UNREACHABLE') }}"
