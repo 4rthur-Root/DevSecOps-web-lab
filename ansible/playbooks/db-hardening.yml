@@ -1,0 +1,50 @@
+---
+- name: Hardening MySQL - Sécurisation de la base de données
+  hosts: db_servers
+  gather_facts: yes
+
+  vars_files:
+    - ../../ansible/group_vars/all/vars.yml
+
+  tasks:
+
+    - name: "DB | Installer le client MySQL et Python3-PyMySQL"
+      raw: microdnf install -y mysql python3-pip && pip3 install PyMySQL
+      changed_when: false
+
+    - name: "DB | Supprimer les utilisateurs anonymes"
+      community.mysql.mysql_user:
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        name: ''
+        host_all: yes
+        state: absent
+
+    - name: "DB | Supprimer la base de données 'test'"
+      community.mysql.mysql_db:
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        name: test
+        state: absent
+
+    - name: "DB | Restreindre root aux connexions locales uniquement"
+      community.mysql.mysql_user:
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        name: root
+        host: '%'
+        state: absent
+
+    - name: "DB | Vérification - Lister les utilisateurs restants"
+      command: >
+        mysql -u root -p{{ mysql_root_password }}
+        -e "SELECT user, host FROM mysql.user;"
+      register: mysql_users
+      changed_when: false
+
+    - name: "DB | Afficher les utilisateurs (audit)"
+      debug:
+        var: mysql_users.stdout_lines
