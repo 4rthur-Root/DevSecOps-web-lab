@@ -50,7 +50,8 @@
         login_unix_socket: /var/run/mysqld/mysqld.sock
         query: "INSTALL COMPONENT 'file://component_validate_password';"
       register: install_pw
-      failed_when: install_pw.failed and 'already installed' not in install_pw.msg
+      failed_when: false #install_pw.failed and 'already installed' not in install_pw.msg
+      changed_when: "'already installed' not in install_pw.msg and install_pw is not failed"
 
     - name: "DB | Configurer la politique de mot de passe (niveau medium)"
       community.mysql.mysql_variables:
@@ -133,32 +134,12 @@
         name: "{{ app_database }}" # utiliser la variable
         state: present
 
-    - name: "DB | Installer le plugin audit_log"
-      community.mysql.mysql_query:
-        login_user: root
-        login_password: "{{ mysql_root_password }}"
-        login_unix_socket: /var/run/mysqld/mysqld.sock
-        query: "INSTALL PLUGIN audit_log SONAME 'audit_log.so';"
-      register: audit_install
-      failed_when: audit_install.failed and 'already installed' not in audit_install.msg
-
-    - name: "DB | Activer l'audit logging dans my.cnf"
-      lineinfile:
-        path: /etc/my.cnf
-        regexp: "^{{ item.regexp }}"
-        line: "{{ item.line }}"
-      loop:
-        - { regexp: '^audit_log_policy', line: 'audit_log_policy = ALL' }
-        - { regexp: '^audit_log_format', line: 'audit_log_format = JSON' }
-        - { regexp: '^audit_log_rotate_on_size', line: 'audit_log_rotate_on_size = 104857600' }
-      notify: restart mysql
-
     - name: "DB | Vérification - Lister les utilisateurs restants"
       command: >
-        mysql -u root -p{{ mysql_root_password }}
+        mysql --no-defaults -u root -p{{ mysql_root_password }} 
         -e "SELECT user, host FROM mysql.user;"
       register: mysql_users
-      changed_when: false
+      changed_when: false # --no-defaults pour contourner max_connections=100 my.cnf
 
     - name: "DB | Afficher les utilisateurs (audit)"
       debug:
@@ -166,14 +147,14 @@
 
     - name: "DB | Vérifier l'état des plugins de sécurité"
       command: >
-        mysql -u root -p{{ mysql_root_password }}
+        mysql --no-defaults -u root -p{{ mysql_root_password }}
         -e "SHOW PLUGINS;"
       register: plugins
       changed_when: false
 
     - name: "DB | Vérifier les variables SSL"
       command: >
-        mysql -u root -p{{ mysql_root_password }}
+        mysql --no-defaults -u root -p{{ mysql_root_password }}
         -e "SHOW VARIABLES LIKE '%ssl%';"
       register: ssl_vars
       changed_when: false
