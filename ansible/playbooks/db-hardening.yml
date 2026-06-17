@@ -1,7 +1,7 @@
 ---
 - name: Hardening MySQL - Sécurisation de la base de données
   hosts: db_servers
-  gather_facts: yes
+  gather_facts: false
 
   vars_files:
     - ../../ansible/group_vars/all/vars.yml
@@ -9,8 +9,10 @@
   tasks:
 
     - name: "DB | Installer le client MySQL et Python3-PyMySQL"
-      raw: microdnf install -y mysql python3-pip && pip3 install PyMySQL
-      changed_when: false
+      raw: microdnf install -y python3-pip && pip3 install PyMySQL # Contourner python kpooooo
+      changed_when: true 
+      # Note: Le client MySQL est déjà présent via mysql-community-server-minimal
+  # Seul PyMySQL est nécessaire pour les modules Ansible
 
     - name: "DB | Supprimer les utilisateurs anonymes"
       community.mysql.mysql_user:
