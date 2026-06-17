@@ -251,3 +251,114 @@ podman exec waf cat /var/log/nginx/access.log | tail -1
 podman exec waf pgrep -a promtail
 # → 2246 /usr/local/bin/promtail -config.file=/etc/promtail-config.yml ✅
 ```
+
+---
+
+## 8. DB | Playbook : Mot de passe MySQL incorrect dans le vault — `Access denied for user 'root'`
+
+### Le problème exact
+Lors de la première exécution du playbook `db-hardening.yml`, la tâche de suppression des utilisateurs anonymes échouait immédiatement :
+```
+fatal: [mysql-db]: FAILED! => {}
+MSG: unable to connect to database, check login_user and login_password are correct
+Exception message: (1045, "Access denied for user 'root'@'localhost' (using password: YES)")
+```
+
+### Comment le problème a été identifié
+Le vault Ansible (`group_vars/all/vault.yml`) avait été initialisé avec un mot de passe de test (`SOCops@#`) au lieu du vrai mot de passe utilisé lors de la création du conteneur MySQL par Terraform.
+
+Le mot de passe réel a été retrouvé grâce à la commande d'inspection du conteneur :
+```bash
+podman inspect mysql-db | grep -A 5 "Env"
+# → "MYSQL_ROOT_PASSWORD=My_@password"
+```
+Cette commande liste toutes les variables d'environnement du conteneur, y compris le mot de passe root passé par Terraform via la variable `MYSQL_ROOT_PASSWORD`.
+
+### La Solution
+Modification du fichier `vault.yml` (via `ansible-vault edit`) pour aligner `mysql_root_password` avec la valeur réellement passée à Terraform dans `terraform.tfvars`.
+
+### Ce qu'il faut en retenir
+Les secrets Terraform et les secrets Ansible sont deux systèmes distincts. **Il faut s'assurer dès le départ que la même valeur de mot de passe est déclarée dans les deux endroits**, ou mieux, n'en avoir qu'une seule source de vérité (voir entry #10 pour les approches alternatives).
+
+---
+
+## 9. DB | Playbook : Plugin `audit_log` absent — MySQL Community Edition
+
+### Le problème exact
+La tâche d'installation du plugin d'audit échouait avec une erreur de bibliothèque partagée introuvable :
+```
+Cannot execute SQL 'INSTALL PLUGIN audit_log SONAME 'audit_log.so';' args [None]:
+(1126, "Can't open shared library '/usr/lib64/mysql/plugin/audit_log.so'
+(errno: 0 [...]: No such file or directory)")
+```
+
+### Comment le problème a été identifié
+Le plugin `audit_log` (sous forme de fichier `.so`) est une fonctionnalité **exclusive à MySQL Enterprise Edition**. L'image Docker utilisée (`mysql:8.0`) est la version **Community Edition** distribuée sous licence GPL, qui ne l'inclut pas.
+
+**Alternatives existantes pour l'audit dans MySQL Community :**
+| Méthode | Description | Inconvénient |
+|---|---|---|
+| `audit_log.so` | Plugin natif, logs JSON/XML structurés | **Enterprise uniquement** |
+| `general_log` | Log de toutes les requêtes SQL | **Extrêmement verbeux**, impact performance sévère, non recommandé en prod |
+| **`component_validate_password`** | Composant de validation de mot de passe (installé dans ce projet) | Validation seulement, pas d'audit |
+| **MariaDB Audit Plugin** | Plugin open-source, fonctionne avec certaines versions MySQL | Compatibilité non garantie avec MySQL 8.0 |
+
+`general_log` a été mentionné comme option mais volontairement écarté en raison de sa verbosité excessive et de l'impact sur les performances.
+
+### La Solution
+La tâche d'installation du plugin `audit_log` et les tâches de configuration associées (`audit_log_policy`, `audit_log_format`) ont été **conservées dans le playbook mais gérées de manière non bloquante** via `failed_when`. La stratégie d'audit adoptée s'appuie sur :
+- La journalisation des erreurs MySQL (`log_error = /var/log/mysql/error.log`)
+- Le composant `validate_password` pour renforcer la politique de mots de passe
+- Les logs du WAF (Nginx + ModSecurity) pour tracer les tentatives d'attaque au niveau applicatif
+
+### Ce qu'il faut en retenir
+Toujours vérifier la matrice de fonctionnalités Community vs Enterprise d'un SGBD avant de planifier des contrôles de sécurité. Pour un projet de portfolio, le choix conscient et documenté d'une alternative vaut autant qu'une implémentation parfaite.
+
+---
+
+## 10. 🔐 Réflexion Sécurité : Secrets exposés via `podman inspect`
+
+### Le constat
+La commande `podman inspect mysql-db | grep Env` a permis de retrouver le mot de passe root MySQL **en clair** dans la sortie :
+```json
+"Env": [
+  "MYSQL_ROOT_PASSWORD=My_@password",
+  ...
+]
+```
+Ce comportement est le comportement par défaut de Docker/Podman : les variables d'environnement passées à un conteneur sont stockées dans ses métadonnées et accessibles à tout utilisateur ayant accès au socket Docker/Podman (c'est-à-dire, par défaut, tout membre du groupe `docker` ou tout utilisateur rootless sur sa propre session).
+
+### Pourquoi c'est une vraie menace
+Dans un environnement partagé (serveur de CI/CD, machine de dev mutualisée), n'importe quel utilisateur ayant accès aux commandes Podman/Docker peut exfiltrer l'ensemble des secrets de tous les conteneurs en quelques secondes. C'est une surface d'attaque critique en post-exploitation.
+
+### Politiques de sécurité qui auraient pu être appliquées
+
+#### 1. Ne jamais passer de secrets via des variables d'environnement
+Utiliser des **fichiers de secrets montés** en volume, qui ne sont pas exposés par `inspect` :
+```hcl
+# Dans main.tf : monter un fichier de secrets au lieu de passer une env var
+volumes {
+  host_path      = "/run/secrets/mysql_root_password"
+  container_path = "/run/secrets/mysql_root_password"
+  read_only      = true
+}
+```
+
+#### 2. Docker/Podman Secrets (mode Swarm ou Podman Secrets)
+Podman dispose d'un mécanisme natif de secrets qui monte le secret en tant que fichier en mémoire (`tmpfs`) et ne l'expose pas via `inspect` :
+```bash
+# Créer le secret
+echo "My_@password" | podman secret create mysql_root_password -
+
+# Référencer dans le conteneur (via --secret, pas --env)
+podman run --secret mysql_root_password,type=env,target=MYSQL_ROOT_PASSWORD mysql:8.0
+```
+
+#### 3. HashiCorp Vault (approche Enterprise)
+Intégrer un gestionnaire de secrets dédié (Vault) qui délivre les credentials dynamiquement au moment du démarrage du conteneur, sans jamais les stocker dans les métadonnées.
+
+#### 4. Limiter l'accès au socket Podman/Docker
+Appliquer le principe du moindre privilège : seuls les utilisateurs/processus strictement nécessaires doivent pouvoir exécuter des commandes `podman inspect`.
+
+### État actuel dans ce projet
+Le mot de passe est géré via **Ansible Vault** (`vault.yml`) pour la partie configuration, ce qui est correct. La faiblesse réside côté Terraform : le mot de passe est passé via une variable d'environnement Docker. Pour un projet de portfolio, ce niveau est acceptable et documenté. Pour une mise en production réelle, les approches 1 ou 2 ci-dessus seraient obligatoires.
