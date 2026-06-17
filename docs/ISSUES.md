@@ -125,3 +125,22 @@ L'approche de bootstrap via `raw` est pratique, mais dans une approche GitOps/De
 Une architecture 100% conteneurisée révèle rapidement les prérequis cachés des outils de Configuration Management. Ansible n'est pas "magique" : il a besoin d'un environnement d'exécution (Python) sur ses cibles. Comprendre la différence entre un système Linux complet (VM) et un conteneur allégé est essentiel pour tout ingénieur DevOps/SecOps.
 
 ![Pings réussis](./evidences/ping-reussi.png)
+
+## 4. Ansible WAF : unzip manquant pour décompresser Promtail
+
+### Problème
+`unarchive` échoue : ni `unzip`, ni `tar` avec support zip disponibles dans le container.
+
+### Comment le problème a été identifié
+Lors de l'exécution du playbook, le module `unzip` échoue avec une erreur de décompression.
+```
+[ERROR]: Task failed: Module failed: Failed to find handler for "/tmp/promtail.zip". Make sure the required command to extract the file is installed.
+Command "/usr/bin/tar" could not handle archive: Unable to list files in the archive: tar (child): xz: Cannot exec: No such file or directory
+```
+
+### Solution
+Ajout d'une task `package: name=unzip state=present` avant la décompression.
+
+### À retenir
+Les images Docker minimalistes n'ont pas les utilitaires système de base.
+Toujours installer les dépendances d'outillage avant de les utiliser.
