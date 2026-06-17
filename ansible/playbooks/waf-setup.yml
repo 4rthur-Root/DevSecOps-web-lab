@@ -34,6 +34,11 @@
             dest: /tmp/promtail.zip
             mode: '0644'
 
+        - name: Télécharger "unzip" pour décompresser Promtail
+          package:
+            name: unzip
+            state: present
+
         - name: Décompresser Promtail
           unarchive:
             src: /tmp/promtail.zip
