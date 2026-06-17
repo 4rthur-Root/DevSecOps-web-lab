@@ -1,0 +1,4 @@
+# Variables non-sensibles
+mysql_database: juiceshop
+waf_container_name: waf
+loki_url: http://loki:3100
