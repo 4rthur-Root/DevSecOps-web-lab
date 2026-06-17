@@ -126,21 +126,128 @@ Une architecture 100% conteneurisée révèle rapidement les prérequis cachés 
 
 ![Pings réussis](./evidences/ping-reussi.png)
 
-## 4. Ansible WAF : unzip manquant pour décompresser Promtail
+## 4. WAF | Playbook : Erreur de syntaxe Nginx dans `nginx.conf` — `invalid number of arguments in proxy_pass`
 
-### Problème
-`unarchive` échoue : ni `unzip`, ni `tar` avec support zip disponibles dans le container.
+### Le problème exact
+Après le premier `ansible-playbook waf-setup.yml`, le handler `Recharger Nginx` déclenchait une erreur fatale empêchant la config d'être prise en compte :
+```
+nginx: [emerg] invalid number of arguments in "proxy_pass" directive in /etc/nginx/conf.d/default.conf:25
+```
 
 ### Comment le problème a été identifié
-Lors de l'exécution du playbook, le module `unzip` échoue avec une erreur de décompression.
+La commande `nginx -T` (test de configuration) a permis d'isoler la ligne en cause. En l'inspectant dans `ansible/files/waf/nginx.conf`, la directive `proxy_pass` contenait un backslash parasite avant le point-virgule de fin de ligne :
+```nginx
+# FAUX (généré par l'éditeur de texte)
+proxy_pass http://juiceshop:3000\;
+
+# CORRECT
+proxy_pass http://juiceshop:3000;
 ```
-[ERROR]: Task failed: Module failed: Failed to find handler for "/tmp/promtail.zip". Make sure the required command to extract the file is installed.
-Command "/usr/bin/tar" could not handle archive: Unable to list files in the archive: tar (child): xz: Cannot exec: No such file or directory
+Le backslash `\` est un caractère d'échappement valide dans certains langages (shell, Python), mais **il n'a aucune signification en syntaxe Nginx** et est donc traité comme un caractère illégitime supplémentaire, transformant la directive en une instruction avec "trop d'arguments".
+
+### La Solution
+Suppression du backslash parasite dans `ansible/files/waf/nginx.conf`.
+
+### Ce qu'il faut en retenir
+En Nginx, le point-virgule `;` est le terminateur de directive. Il ne doit jamais être échappé. Ce type de bug est classique lors d'une écriture de config dans un éditeur de code qui confond les contextes de langage.
+
+---
+
+## 5. WAF | Playbook : Variable Nginx `$modsec_inbound_anomaly_score` inconnue
+
+### Le problème exact
+Même après correction de la syntaxe `proxy_pass`, le reload Nginx échouait avec :
+```
+nginx: [emerg] unknown "modsec_inbound_anomaly_score" variable
 ```
 
-### Solution
-Ajout d'une task `package: name=unzip state=present` avant la décompression.
+### Comment le problème a été identifié
+Le `log_format` JSON défini dans `nginx.conf` référençait deux variables ModSecurity : `$modsec_inbound_anomaly_score` et `$matched_var`. Ces variables sont injectées dans Nginx via le module dynamique `ngx_http_modsecurity_module`. Lorsque ce module n'est pas chargé **avant** l'évaluation du bloc `http`, ou que les variables n'ont pas encore été déclarées, Nginx refuse de démarrer.
+L'image `owasp/modsecurity-crs:nginx` charge bien ModSecurity, mais le connecteur ne garantit pas l'exposition de toutes les variables internes de ModSecurity dans l'espace de variables Nginx standard.
 
-### À retenir
-Les images Docker minimalistes n'ont pas les utilitaires système de base.
-Toujours installer les dépendances d'outillage avant de les utiliser.
+### La Solution
+Suppression des deux variables problématiques du `log_format` dans `nginx.conf`. Le log JSON conserve les champs essentiels pour l'analyse Grafana/Loki :
+- `time`, `remote_addr`, `method`, `uri`, `status`, `body_bytes`, `http_referer`, `http_user_agent`
+
+### Ce qu'il faut en retenir
+Pour enrichir les logs avec le score ModSecurity (une vraie valeur ajoutée pour un dashboard SOC), il faut utiliser le **log d'audit ModSecurity** (`/var/log/modsec_audit.log`), qui est un fichier séparé géré par le moteur ModSecurity lui-même. On pourra configurer Promtail pour l'aspirer en Phase 3.
+
+---
+
+## 6. WAF | Playbook : `pkill`, `ps`, `pgrep` introuvables dans l'image
+
+### Le problème exact
+Toutes les commandes d'inspection ou d'arrêt de processus échouaient dans le conteneur WAF :
+```
+Error: crun: executable file `pgrep` not found in $PATH: No such file or directory
+Error: crun: executable file `ps` not found in $PATH: No such file or directory
+```
+Concrètement, la tâche Ansible `pkill promtail || true` aurait silencieusement échoué sur le `pkill` sans le `|| true`, et les vérifications manuelles étaient impossibles.
+
+### Comment le problème a été identifié
+L'image Debian minimale (`owasp/modsecurity-crs:nginx`) n'installe que le strict nécessaire pour faire tourner Nginx. Les utilitaires `ps`, `pgrep` et `pkill` font partie du paquet `procps` qui n'est pas inclus.
+
+### La Solution
+Ajout du paquet `procps` dans la liste des dépendances installées par le playbook `waf-setup.yml`, en parallèle de `unzip` :
+```yaml
+- name: Télécharger "unzip" et "procps" (pour pkill)
+  package:
+    name:
+      - unzip
+      - procps
+    state: present
+```
+
+### Ce qu'il faut en retenir
+Regrouper les installations de dépendances systèmes dans une seule tâche `package` avec une liste est une bonne pratique Ansible (une seule transaction apt, idempotent, plus lisible).
+
+---
+
+## 7. WAF | Playbook : Logs Nginx symlinkés vers `/dev/stdout` — Promtail ne peut pas les lire
+
+### Le problème exact
+Pendant les tests de validation, la commande `podman exec waf cat /var/log/nginx/access.log` bloquait indéfiniment et ne retournait rien. L'inspection du répertoire révélait :
+```bash
+podman exec waf ls -la /var/log/nginx/
+# lrwxrwxrwx. root root 11 May 19  access.log -> /dev/stdout
+# lrwxrwxrwx. root root 11 May 19  error.log -> /dev/stderr
+```
+Promtail essayait de « lire » un fichier qui n'était qu'un lien symbolique vers la sortie standard du conteneur — un pseudo-fichier en écriture seule. Il ne pouvait donc jamais envoyer un seul log vers Loki.
+
+### Comment le problème a été identifié
+C'est une convention Docker très répandue : par défaut, les images redirigent les logs applicatifs vers `stdout/stderr` pour que le démon Docker (ou Podman) les collecte via `docker logs`. C'est un excellent réflexe pour un déploiement classique, mais c'est **incompatible avec un agent de collecte de fichiers** comme Promtail, qui a besoin de vrais fichiers à « tail ».
+
+### La Solution
+Ajout d'une tâche Ansible exécutée avant le lancement de Promtail pour substituer les symlinks par de vrais fichiers vides :
+```yaml
+- name: "WAF | Remplacer les symlinks de logs Nginx par de vrais fichiers (pour Promtail)"
+  shell: |
+    if [ -L /var/log/nginx/access.log ]; then rm /var/log/nginx/access.log && touch /var/log/nginx/access.log; fi
+    if [ -L /var/log/nginx/error.log ]; then rm /var/log/nginx/error.log && touch /var/log/nginx/error.log; fi
+    chown nginx:adm /var/log/nginx/access.log /var/log/nginx/error.log
+  changed_when: false
+```
+
+### Ce qu'il faut en retenir
+Lors du déploiement d'une stack observabilité (Promtail, Filebeat, Fluentd…) sur des conteneurs Docker, **toujours vérifier si les logs sont de vrais fichiers ou des symlinks vers stdout/stderr**. C'est un piège quasi-systématique avec les images officielles.
+
+### État final après résolution de toutes les erreurs WAF (Phase 2)
+- Nginx se recharge correctement sans erreur de syntaxe ✅
+- Config JSON active, les requêtes génèrent des logs structurés ✅
+- `pgrep` et `pkill` disponibles dans le conteneur ✅
+- Logs dans de vrais fichiers, lisibles par Promtail ✅
+
+**Validation :**
+```bash
+# Requête test à travers le WAF
+curl -s http://localhost:8080/rest/products/search\?q\=test
+# → Réponse JSON de Juice Shop ✅
+
+# Log JSON généré
+podman exec waf cat /var/log/nginx/access.log | tail -1
+# → {"time":"2026-06-17T07:15:57+00:00","remote_addr":"10.89.2.3","method":"GET","uri":"/rest/products/search?q=test","status":200,...}
+
+# Promtail actif
+podman exec waf pgrep -a promtail
+# → 2246 /usr/local/bin/promtail -config.file=/etc/promtail-config.yml ✅
+```
