@@ -34,9 +34,18 @@
             dest: /tmp/promtail.zip
             mode: '0644'
 
-        - name: Télécharger "unzip" pour décompresser Promtail
+        - name: "WAF | Remplacer les symlinks de logs Nginx par de vrais fichiers (pour Promtail)"
+          shell: |
+            if [ -L /var/log/nginx/access.log ]; then rm /var/log/nginx/access.log && touch /var/log/nginx/access.log; fi
+            if [ -L /var/log/nginx/error.log ]; then rm /var/log/nginx/error.log && touch /var/log/nginx/error.log; fi
+            chown nginx:adm /var/log/nginx/access.log /var/log/nginx/error.log
+          changed_when: false
+
+        - name: Télécharger "unzip" et "procps" (pour pkill)
           package:
-            name: unzip
+            name: 
+              - unzip
+              - procps
             state: present
 
         - name: Décompresser Promtail
