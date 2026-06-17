@@ -5,3 +5,10 @@ loki_url: http://loki:3100
 
 # Variables sensibles ( mysql surtout )
 mysql_root_password: "{{ vault_mysql_root_password }}"
+app_password: "{{ vault_app_password }}" # Mot de passe pour l'utilisateur applicatif 
+# Si non défini, un mot de passe par défaut sera utilisé
+
+
+# Variables applicatives pour le durcissement
+app_user: "oracle_user"          # L'utilisateur qui va utiliser la base de données
+app_database: "{{ mysql_database }}" # Utilise la variable existante
