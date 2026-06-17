@@ -6,11 +6,11 @@
   tasks:
     - name: Installer Python3 sur les conteneurs basés sur Debian (WAF)
       raw: apt-get update && apt-get install -y python3
-      when: inventory_hostname in groups['waf'] # Waf only
+      when: inventory_hostname in groups['waf_servers'] # Waf only
       changed_when: false # Pollution maîtrisée
       
 
     - name: Installer Python3 sur les conteneurs basés sur Oracle Linux (MySQL)
       raw: microdnf install -y python3
-      when: inventory_hostname in groups['database']
+      when: inventory_hostname in groups['db_servers']
       changed_when: false
