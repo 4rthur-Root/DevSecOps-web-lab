@@ -2,7 +2,7 @@
 ---
 - name: Installer Python sur les conteneurs pour permettre l'exécution d'Ansible
   hosts: all
-  gather_facts: no # Ansible ne récolte rien (IMPORTANT!)
+  gather_facts: false # Ansible ne récolte rien (IMPORTANT!)
   tasks:
     - name: Installer Python3 sur les conteneurs basés sur Debian (WAF)
       raw: apt-get update && apt-get install -y python3
