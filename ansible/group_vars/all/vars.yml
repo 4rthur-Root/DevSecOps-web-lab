@@ -2,3 +2,6 @@
 mysql_database: juiceshop
 waf_container_name: waf
 loki_url: http://loki:3100
+
+# Variables sensibles ( mysql surtout )
+mysql_root_password: "{{ vault_mysql_root_password }}"
