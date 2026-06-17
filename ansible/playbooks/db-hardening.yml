@@ -1,3 +1,6 @@
+# Ce playbook Ansible est conçu pour renforcer la sécurité d'une base de données MySQL 
+# Les précautions les plus importantes sont prises selon les normes recommandés 
+# Ces normes sont répertoriés dans docs/Resources.md
 ---
 - name: Hardening MySQL - Sécurisation de la base de données
   hosts: db_servers
@@ -7,12 +10,12 @@
     - ../../ansible/group_vars/all/vars.yml
 
   tasks:
-
-    - name: "DB | Installer le client MySQL et Python3-PyMySQL"
+    - name: "DB | Installer Python3-Pip et PyMySQL"
       raw: microdnf install -y python3-pip && pip3 install PyMySQL # Contourner python kpooooo
       changed_when: true 
       # Note: Le client MySQL est déjà présent via mysql-community-server-minimal
-  # Seul PyMySQL est nécessaire pour les modules Ansible
+      # Seul PyMySQL est nécessaire pour les modules Ansible
+
 
     - name: "DB | Supprimer les utilisateurs anonymes"
       community.mysql.mysql_user:
@@ -20,7 +23,7 @@
         login_password: "{{ mysql_root_password }}"
         login_unix_socket: /var/run/mysqld/mysqld.sock
         name: ''
-        host_all: yes
+        host_all: true
         state: absent
 
     - name: "DB | Supprimer la base de données 'test'"
@@ -40,6 +43,116 @@
         host: '%'
         state: absent
 
+    - name: "DB | Installer le composant validate_password"
+      community.mysql.mysql_query:
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        query: "INSTALL COMPONENT 'file://component_validate_password';"
+      register: install_pw
+      failed_when: install_pw.failed and 'already installed' not in install_pw.msg
+
+    - name: "DB | Configurer la politique de mot de passe (niveau medium)"
+      community.mysql.mysql_variables:
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        variable: "{{ item.var }}"
+        value: "{{ item.val }}"
+      loop:
+        - { var: 'validate_password.policy', val: 'MEDIUM' }
+        - { var: 'validate_password.length', val: '12' }
+        - { var: 'validate_password.mixed_case_count', val: '1' }
+        - { var: 'validate_password.number_count', val: '1' }
+        - { var: 'validate_password.special_char_count', val: '1' }
+
+    - name: "DB | Appliquer les paramètres de hardening dans my.cnf"
+      lineinfile:
+        path: /etc/my.cnf
+        regexp: "^{{ item.regexp }}"
+        line: "{{ item.line }}"
+        create: true
+        backup: true
+      loop:
+        - { regexp: '^bind-address', line: 'bind-address = 127.0.0.1' }
+        - { regexp: '^max_connections', line: 'max_connections = 100' }
+        - { regexp: '^max_connect_errors', line: 'max_connect_errors = 10' }
+        - { regexp: '^log_error', line: 'log_error = /var/log/mysql/error.log' }
+        - { regexp: '^general_log', line: 'general_log = 0' }
+        - { regexp: '^secure-file-priv', line: 'secure-file-priv = /var/lib/mysql-files' }
+        - { regexp: '^sql_mode', line: 'sql_mode = STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION' }
+        - { regexp: '^local-infile', line: 'local-infile = 0' }
+        - { regexp: '^symbolic-links', line: 'symbolic-links = 0' }
+        - { regexp: '^skip-name-resolve', line: 'skip-name-resolve = 1' }
+        - { regexp: '^max_allowed_packet', line: 'max_allowed_packet = 16M' }
+      notify: restart mysql
+
+    - name: "DB | Créer le répertoire SSL"
+      file:
+        path: /etc/mysql/ssl
+        state: directory
+        mode: '0750'
+
+    - name: "DB | Générer un certificat SSL auto-signé (si absent)"
+      command: |
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+        -keyout /etc/mysql/ssl/server-key.pem \
+        -out /etc/mysql/ssl/server-cert.pem \
+        -subj "/C=FR/ST=Paris/L=Paris/O=DevSecOps/CN=mysql-db"
+      args:
+        creates: /etc/mysql/ssl/server-cert.pem
+
+    - name: "DB | Configurer SSL dans my.cnf"
+      lineinfile:
+        path: /etc/my.cnf
+        regexp: "^{{ item.regexp }}"
+        line: "{{ item.line }}"
+      loop:
+        - { regexp: '^ssl-ca', line: 'ssl-ca = /etc/mysql/ssl/server-cert.pem' }
+        - { regexp: '^ssl-cert', line: 'ssl-cert = /etc/mysql/ssl/server-cert.pem' }
+        - { regexp: '^ssl-key', line: 'ssl-key = /etc/mysql/ssl/server-key.pem' }
+        - { regexp: '^require_secure_transport', line: 'require_secure_transport = ON' }
+      notify: restart mysql
+
+    - name: "DB | Créer l'utilisateur applicatif (si non existant)"
+      community.mysql.mysql_user:
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        name: "{{ app_user }}"
+        password: "{{ app_password | default('ChangeMe123!') }}"
+        host: 'localhost'
+        priv: "{{ app_database }}.*:SELECT,INSERT,UPDATE,DELETE,EXECUTE"
+        state: present
+
+    - name: "DB | Créer la base applicative"
+      community.mysql.mysql_db:
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        name: "{{ app_database }}" # utiliser la variable
+        state: present
+
+    - name: "DB | Installer le plugin audit_log"
+      community.mysql.mysql_query:
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        query: "INSTALL PLUGIN audit_log SONAME 'audit_log.so';"
+      register: audit_install
+      failed_when: audit_install.failed and 'already installed' not in audit_install.msg
+
+    - name: "DB | Activer l'audit logging dans my.cnf"
+      lineinfile:
+        path: /etc/my.cnf
+        regexp: "^{{ item.regexp }}"
+        line: "{{ item.line }}"
+      loop:
+        - { regexp: '^audit_log_policy', line: 'audit_log_policy = ALL' }
+        - { regexp: '^audit_log_format', line: 'audit_log_format = JSON' }
+        - { regexp: '^audit_log_rotate_on_size', line: 'audit_log_rotate_on_size = 104857600' }
+      notify: restart mysql
+
     - name: "DB | Vérification - Lister les utilisateurs restants"
       command: >
         mysql -u root -p{{ mysql_root_password }}
@@ -50,3 +163,29 @@
     - name: "DB | Afficher les utilisateurs (audit)"
       debug:
         var: mysql_users.stdout_lines
+
+    - name: "DB | Vérifier l'état des plugins de sécurité"
+      command: >
+        mysql -u root -p{{ mysql_root_password }}
+        -e "SHOW PLUGINS;"
+      register: plugins
+      changed_when: false
+
+    - name: "DB | Vérifier les variables SSL"
+      command: >
+        mysql -u root -p{{ mysql_root_password }}
+        -e "SHOW VARIABLES LIKE '%ssl%';"
+      register: ssl_vars
+      changed_when: false
+
+    - name: "DB | Afficher les variables SSL (audit)"
+      debug:
+        var: ssl_vars.stdout_lines
+
+  handlers:
+    - name: restart mysql
+      systemd:
+        name: mysqld
+        state: restarted
+        daemon_reload: true
+      when: ansible_service_mgr == 'systemd'
