@@ -1,0 +1,63 @@
+---
+- name: Configurations du WAF (Nginx + ModSecurity + Logs JSON)
+  hosts: waf
+  gather_facts: true
+
+  tasks:
+
+    - name: "WAF | Créer le répertoire de conf Nginx custom"
+      file:
+        path: /etc/nginx/conf.d
+        state: directory
+        mode: '0755'
+
+    - name: "WAF | Déployer la config Nginx (reverse proxy + logs JSON)"
+      copy:
+        src: ../files/waf/nginx.conf
+        dest: /etc/nginx/conf.d/default.conf
+        mode: '0644'
+      notify: Recharger Nginx
+
+    - name: "WAF | Activer ModSecurity en mode blocage"
+      lineinfile:
+        path: /etc/nginx/modsecurity.d/modsecurity.conf
+        regexp: '^SecRuleEngine'
+        line: 'SecRuleEngine On'
+        backup: yes
+      notify: Recharger Nginx
+
+    - name: "WAF | Installer Promtail (collecteur de logs)"
+      block:
+        - name: Télécharger Promtail
+          get_url:
+            url: "https://github.com/grafana/loki/releases/download/v3.0.0/promtail-linux-amd64.zip"
+            dest: /tmp/promtail.zip
+            mode: '0644'
+
+        - name: Décompresser Promtail
+          unarchive:
+            src: /tmp/promtail.zip
+            dest: /usr/local/bin/
+            remote_src: yes
+            mode: '0755'
+
+        - name: Renommer le binaire
+          command: mv /usr/local/bin/promtail-linux-amd64 /usr/local/bin/promtail
+          args:
+            creates: /usr/local/bin/promtail
+
+    - name: "WAF | Déployer la config Promtail"
+      copy:
+        src: ../files/promtail/config.yml
+        dest: /etc/promtail-config.yml
+        mode: '0644'
+
+    - name: "WAF | Lancer Promtail en arrière-plan"
+      shell: |
+        pkill promtail || true
+        nohup /usr/local/bin/promtail -config.file=/etc/promtail-config.yml > /tmp/promtail.log 2>&1 &
+      changed_when: true
+
+  handlers:
+    - name: Recharger Nginx
+      command: nginx -s reload
