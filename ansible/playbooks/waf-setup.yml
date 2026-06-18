@@ -30,11 +30,25 @@
       lineinfile:
         path: /etc/modsecurity.d/owasp-crs/crs-setup.conf
         regexp: '^SecDefaultAction'
-        line: 'SecDefaultAction "phase:{{ item }},log,deny,status:403,tag:'"'"'modsecurity'"'"'"'
+        line: 'SecDefaultAction "phase:{{ item }},log,deny,status:403,tag:''modsecurity''"'
         backup: yes
       loop:
         - "1"
         - "2"
+      notify: Recharger Nginx
+
+    - name: "WAF | Déployer les règles d'exception (anti faux positifs)"
+      copy:
+        src: ../files/waf/exclusion_rules.conf
+        dest: /etc/modsecurity.d/exclusion_rules.conf
+        mode: '0644'
+      notify: Recharger Nginx
+
+    - name: "WAF | Inclure les règles d'exception dans setup.conf"
+      lineinfile:
+        path: /etc/modsecurity.d/setup.conf
+        line: 'Include /etc/modsecurity.d/exclusion_rules.conf'
+        state: present
       notify: Recharger Nginx
 
     - name: "WAF | Installer Promtail (collecteur de logs)"
