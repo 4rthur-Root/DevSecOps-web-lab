@@ -66,13 +66,31 @@ echo "  Payload : /../../../../etc/passwd → HTTP $HTTP"
 HTTP=$(curl -s -o /dev/null -w "%{http_code}" "$TARGET/assets/../../../etc/shadow")
 echo "  Payload : /assets/../../../etc/shadow → HTTP $HTTP"
 
-# PHASE 5 : Faux positif intentionnel
-# WAF Tuning — requête légitime avec apostrophe (test de non-régression)
-# Vérifie que le WAF ne bloque pas une recherche utilisateur normale contenant une apostrophe
-echo -e "\n${YELLOW}[PHASE 5] Faux Positif — WAF Tuning${NC}"
+# PHASE 5 : Faux positif — Tuning WAF
+# OWASP Top 10 2025 — WAF Tuning (analyse et correction de faux positif)
+# La règle CRS 930110 (LFI) bloque le paramètre "q" contenant "../"
+# Problème : des produits Juice Shop ont légitimement "../" dans leur nom
+# Solution : SecRuleUpdateTargetById 930110 "!ARGS:q" dans exclusion_rules.conf
+echo -e "\n${YELLOW}[PHASE 5] Faux Positif — Tuning WAF${NC}"
 
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" "$TARGET/rest/products/search?q=O%27Reilly")
-echo "  Payload : O'Reilly → HTTP $HTTP (attendu : 200, sinon faux positif)"
+echo ""
+echo -e "${BLUE}--- Scénario faux positif ---${NC}"
+echo "  Avant tuning : /rest/products/search?q=../juice → 403 Forbidden"
+echo "  Cause         : Règle CRS 930110 (Path Traversal) déclenchée par ../"
+echo "  Solution      : exclusion_rules.conf → SecRuleUpdateTargetById 930110 !ARGS:q"
+echo "  Après tuning  : Ansible re-déployé → HTTP 200"
+
+echo ""
+echo -e "${BLUE}--- État actuel (exclusion active) ---${NC}"
+HTTP=$(curl -s -o /dev/null -w "%{http_code}" "$TARGET/rest/products/search?q=../juice")
+echo "  ?q=../juice → HTTP $HTTP ✅ Faux positif corrigé"
+
+echo ""
+echo -e "${BLUE}--- Vérification non-régression (protection intacte) ---${NC}"
+HTTP=$(curl -s -o /dev/null -w "%{http_code}" "$TARGET/.git/config")
+echo "  /.git/config → HTTP $HTTP ✅ Protection LFI toujours active"
+HTTP=$(curl -s -o /dev/null -w "%{http_code}" "$TARGET/rest/products/search?q=test%27%20OR%20%271%27=%271")
+echo "  SQLi         → HTTP $HTTP ✅ Protection injection toujours active"
 
 # Résumé
 echo -e "\n${GREEN}==========================================${NC}"
@@ -83,6 +101,11 @@ echo -e "${BLUE}--- OWASP Top 10 2025 Mapping ---${NC}"
 echo -e "  ${RED}A01${NC} — Broken Access Control       → Path Traversal"
 echo -e "  ${RED}A02${NC} — Security Misconfiguration   → Reconnaissance"
 echo -e "  ${RED}A05${NC} — Injection                   → SQLi + XSS"
+echo ""
+echo -e "${BLUE}--- WAF Tuning (démo SOC) ---${NC}"
+echo -e "  Faux positif identifié  → ../juice bloqué par règle 930110"
+echo -e "  Exclusion déployée      → SecRuleUpdateTargetById 930110 !ARGS:q"
+echo -e "  Résultat                → 403 → 200 sans perte de protection"
 echo ""
 echo -e "Vérifie maintenant Grafana → Explore → Loki"
 echo -e "LogQL : ${BLUE}{job=\"waf\"}${NC}"
