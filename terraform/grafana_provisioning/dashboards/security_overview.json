@@ -1,0 +1,126 @@
+{
+  "title": "Security Overview",
+  "uid": "security-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["security", "waf", "devsecops"],
+  "timezone": "browser",
+  "editable": true,
+  "refresh": "10s",
+  "time": {
+    "from": "now-5m",
+    "to": "now"
+  },
+  "timepicker": {},
+  "panels": [
+    {
+      "id": 1,
+      "title": "Volume de logs WAF",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "count_over_time({job=\"waf\"} [$__interval])",
+          "legendFormat": "Tous les logs"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 20
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": ["max", "mean"],
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "description": "Volume total de requêtes passant par le WAF dans le temps"
+    },
+    {
+      "id": 2,
+      "title": "Requêtes bloquées (403)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "count_over_time({job=\"waf\"} |= \"403\" [$__interval])",
+          "legendFormat": "403 bloqués"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "fixed", "fixedColor": "#E02F44" },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 30,
+            "lineStyle": { "fill": "solid" }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": ["max", "mean"],
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "description": "Requêtes bloquées par le WAF (HTTP 403)"
+    },
+    {
+      "id": 3,
+      "title": "Top URIs attaquées",
+      "type": "barchart",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "topk(10, sum by (uri) (count_over_time({job=\"waf\"} |= \"403\" | json | __error__=\"\" [$__interval])))",
+          "legendFormat": "{{ uri }}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "axisSoftMin": 0,
+            "fillOpacity": 80,
+            "gradientMode": "scheme",
+            "lineWidth": 1,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "groupWidth": 0.7,
+        "barWidth": 0.95,
+        "showValue": "auto",
+        "legend": {
+          "calcs": ["max"],
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "description": "Top 10 des URI les plus ciblées par des attaques bloquées"
+    }
+  ]
+}
