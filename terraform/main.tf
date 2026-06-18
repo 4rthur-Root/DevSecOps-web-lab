@@ -92,7 +92,7 @@ resource "docker_container" "waf" {
 
   env = [
     "BACKEND=http://juiceshop:3000",
-    "MODSEC_RULE_ENGINE=DetectionOnly",  # Mode détection d'abord, on activera le blocage via Ansible
+    "MODSEC_RULE_ENGINE=On",
   ]
 
   # Volume pour les logs - Promtail lira ici plus tard
