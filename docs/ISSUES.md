@@ -552,3 +552,141 @@ Enfin, la découverte des `SecDefaultAction = pass` dans `crs-setup.conf` rappel
 
 ### Et avec Docker natif ?
 Aucun impact : le problème est indépendant du moteur de conteneurisation. Il s'agit d'une erreur de configuration applicative (mauvais chemin de fichier + politique CRS en mode pass-through), qui serait identique sous Docker, Podman, ou containerd.
+
+## 13. WAF : Toutes les requêtes passent en HTTP 200 — le WAF ne bloque rien
+
+### Le problème exact
+
+Après déploiement complet (Terraform + Ansible), le WAF était opérationnel 
+et les logs remontaient bien dans Grafana/Loki. Cependant, en lançant le 
+script de simulation d'attaque (`simulate_killchain.sh`), **toutes les 
+requêtes malveillantes obtenaient un HTTP 200 OK**. Les injections SQL, 
+les XSS, les path traversals — rien n'était bloqué. Le WAF agissait comme 
+un simple reverse proxy pass-through.
+
+### Comment le problème a été identifié
+
+#### Étape 1 — Vérification du mode du moteur ModSecurity
+```bash
+podman exec waf grep SecRuleEngine /etc/nginx/modsecurity.d/modsecurity.conf
+# → SecRuleEngine On  ← semblait correct
+```
+
+#### Étape 2 — Vérification du nombre de règles chargées
+```bash
+podman logs waf 2>&1 | grep "rules loaded"
+# → rules loaded inline/local/remote: 0/846/0
+```
+846 règles chargées, mais **zéro règle CRS** — les règles OWASP 
+(SQLi, XSS, etc.) n'étaient pas parmi elles.
+
+#### Étape 3 — Analyse du fichier `crs-setup.conf`
+```bash
+podman exec waf grep SecDefaultAction \
+  /etc/modsecurity.d/owasp-crs/crs-setup.conf
+# → SecDefaultAction "phase:1,pass,log,tag:'modsecurity'"
+# → SecDefaultAction "phase:2,pass,log,tag:'modsecurity'"
+```
+**Cause racine** : même si une règle détecte une attaque, l'action 
+par défaut est `pass` — transmettre la requête sans la bloquer. 
+C'est le comportement par défaut volontaire de l'image CRS, qui 
+laisse l'utilisateur définir explicitement sa politique de blocage.
+
+#### Étape 4 — Variable invalide dans nginx.conf
+```bash
+podman exec waf nginx -T 2>&1 | grep "unknown"
+# → unknown "modsec_inbound_anomaly_score" variable
+```
+Le `log_format` contenait une variable ModSecurity inexposée dans 
+l'espace de variables Nginx. Nginx en mode strict refusait de 
+recharger la config — les corrections de blocage n'étaient donc 
+jamais prises en compte.
+
+### Les Solutions Appliquées
+
+#### 1. Suppression de la variable invalide dans `nginx.conf`
+Retrait de `$modsec_inbound_anomaly_score` et `$matched_var` du 
+`log_format`. Le log JSON conserve les champs essentiels.
+
+#### 2. Activation du blocage dans `modsecurity-override.conf`
+```bash
+# Via Ansible — task ajoutée dans waf-setup.yml
+- name: "WAF | Activer le blocage dans modsecurity-override.conf"
+  copy:
+    dest: /etc/nginx/modsecurity.d/modsecurity-override.conf
+    content: |
+      SecDefaultAction "phase:1,log,auditlog,deny,status:403"
+      SecDefaultAction "phase:2,log,auditlog,deny,status:403"
+```
+
+#### 3. Correction du SecRuleEngine dans Terraform
+```hcl
+env = [
+  "BACKEND=http://juiceshop:3000",
+  "MODSEC_RULE_ENGINE=On",
+]
+```
+
+### Validation
+```bash
+# SQLi → bloquée
+curl -s -o /dev/null -w "%{http_code}\n" \
+  "http://localhost:8080/rest/products/search?q=1'+UNION+SELECT+null--"
+# → 403 ✅
+
+# Requête légitime → passe
+curl -s -o /dev/null -w "%{http_code}\n" \
+  "http://localhost:8080/rest/products/search?q=apple"
+# → 200 ✅
+```
+
+### Ce qu'il faut en retenir
+Il existe une différence fondamentale entre `SecRuleEngine On` 
+(moteur actif) et `SecDefaultAction` (action sur détection). 
+On peut avoir le moteur actif mais une politique de `pass` — 
+le WAF analyse sans jamais bloquer. **Les deux paramètres doivent 
+être alignés** pour une protection effective.
+
+L'image `owasp/modsecurity-crs:nginx` expose `MODSEC_RULE_ENGINE` 
+comme variable d'environnement, mais pas `SecDefaultAction` — 
+ce dernier doit être configuré manuellement via le fichier 
+`modsecurity-override.conf`.
+
+---
+
+## 14. WAF : Faux positif — socket.io bloqué par le CRS
+
+### Le problème exact
+Après activation du mode blocage, des requêtes légitimes de 
+Juice Shop vers `/socket.io/` recevaient des **HTTP 403**. 
+Juice Shop utilise Socket.IO pour les notifications temps réel — 
+ces connexions sont bloquées car certains paramètres de l'URL 
+déclenchent des règles CRS de détection d'injection.
+
+### Comment le problème a été identifié
+Dans Grafana → filtre `{job="waf"} |= "403"` → les URIs bloquées 
+contiennent massivement `/socket.io/?EIO=4&transport=polling`.
+
+C'est un **faux positif classique** : le WAF confond des paramètres 
+techniques légitimes avec des patterns d'attaque.
+
+### La Solution
+Ajout d'une règle d'exception dans `ansible/files/waf/exclusion_rules.conf`,
+déployée via Ansible :
+
+```nginx
+# Exclusion socket.io — faux positif Juice Shop
+SecRule REQUEST_URI "@beginsWith /socket.io/" \
+    "id:1001,\
+    phase:1,\
+    pass,\
+    nolog,\
+    ctl:ruleEngine=DetectionOnly,\
+    msg:'Exclusion socket.io - trafic legitime Juice Shop'"
+```
+
+### Ce qu'il faut en retenir
+Le tuning des faux positifs est une activité permanente en 
+production. La démarche SOC : identifier le pattern dans les 
+logs → valider que c'est légitime → écrire la règle d'exception 
+→ déployer via IaC → vérifier la non-régression.
