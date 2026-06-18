@@ -20,10 +20,21 @@
 
     - name: "WAF | Activer ModSecurity en mode blocage"
       lineinfile:
-        path: /etc/nginx/modsecurity.d/modsecurity.conf
+        path: /etc/modsecurity.d/modsecurity.conf
         regexp: '^SecRuleEngine'
         line: 'SecRuleEngine On'
         backup: yes
+      notify: Recharger Nginx
+
+    - name: "WAF | Forcer le blocage (deny 403) dans les actions par défaut du CRS"
+      lineinfile:
+        path: /etc/modsecurity.d/owasp-crs/crs-setup.conf
+        regexp: '^SecDefaultAction'
+        line: 'SecDefaultAction "phase:{{ item }},log,deny,status:403,tag:'"'"'modsecurity'"'"'"'
+        backup: yes
+      loop:
+        - "1"
+        - "2"
       notify: Recharger Nginx
 
     - name: "WAF | Installer Promtail (collecteur de logs)"
