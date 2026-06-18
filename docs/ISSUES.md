@@ -379,3 +379,176 @@ volume Grafana interne.
 Mineur — la datasource est configurée et fonctionnelle. 
 Le fichier `loki_datasource.yml` reste dans le repo à titre 
 documentaire mais n'est pas chargé automatiquement avec Podman rootless.
+
+---
+
+## 12. WAF : Toutes les requêtes passent en HTTP 200 — le WAF ne bloque rien
+
+### Le problème exact
+
+Après déploiement complet (Terraform + Ansible), le WAF était opérationnel et les logs remontaient bien dans Grafana/Loki. Cependant, en lançant le script de simulation d'attaque (`simulate_killchain.sh`), **toutes les requêtes malveillantes obtenaient un HTTP 200 OK**. Les injections SQL, les XSS, les path traversals — rien n'était bloqué. Le WAF agissait comme un simple reverse proxy pass-through.
+
+L'inspection des logs Grafana montrait les requêtes avec le statut `200`, comme si aucune règle de sécurité n'avait été déclenchée.
+
+### Comment le problème a été identifié
+
+Le diagnostic a suivi une approche systématique en remontant la chaîne de responsabilité :
+
+#### Étape 1 — Vérification du chargement des règles CRS
+```bash
+podman logs waf 2>&1 | grep "rules loaded"
+# → ModSecurity-nginx v1.0.4 (rules loaded inline/local/remote: 0/846/0)
+```
+846 règles chargées — ce n'était pas un problème de règles manquantes.
+
+#### Étape 2 — Vérification du mode du moteur ModSecurity
+```bash
+podman exec waf env | grep MODSEC_RULE_ENGINE
+# → MODSEC_RULE_ENGINE=DetectionOnly
+```
+**Première alerte** : le moteur tournait en mode `DetectionOnly`. Ce mode spécifie que ModSecurity doit analyser le trafic et journaliser les alertes, mais **sans jamais bloquer une requête**, même si une règle est violée.
+
+#### Étape 3 — Traçage du chemin de configuration réellement chargé par Nginx
+```bash
+podman exec waf grep -r "modsecurity_rules_file" /etc/nginx/
+# → /etc/nginx/conf.d/modsecurity.conf:
+#   modsecurity_rules_file /etc/modsecurity.d/setup.conf;
+```
+En suivant la chaîne d'inclusion :
+```
+/etc/nginx/conf.d/modsecurity.conf
+  → modsecurity_rules_file /etc/modsecurity.d/setup.conf
+    → Include /etc/modsecurity.d/modsecurity.conf     ← fichier réel
+```
+Or, le playbook Ansible (`waf-setup.yml`) modifiait ce fichier :
+```yaml
+- name: "WAF | Activer ModSecurity en mode blocage"
+  lineinfile:
+    path: /etc/nginx/modsecurity.d/modsecurity.conf   ← MAUVAIS CHEMIN
+    regexp: '^SecRuleEngine'
+    line: 'SecRuleEngine On'
+```
+
+**Deuxième alerte** : le playbook éditait `/etc/nginx/modsecurity.d/modsecurity.conf` alors que Nginx chargeait **`/etc/modsecurity.d/modsecurity.conf`** (sans le préfixe `nginx/`). Ce sont deux fichiers distincts dans l'image. Le fichier réellement chargé était donc toujours en `DetectionOnly` :
+
+```bash
+podman exec waf grep SecRuleEngine /etc/modsecurity.d/modsecurity.conf
+# → SecRuleEngine DetectionOnly    ← jamais touché par Ansible !
+```
+
+#### Étape 4 — Analyse des actions par défaut du CRS
+Même après correction du `SecRuleEngine On`, les attaques n'étaient toujours pas bloquées. L'inspection des `SecDefaultAction` dans le CRS a révélé la cause racine :
+
+```bash
+podman exec waf grep "SecDefaultAction" /etc/modsecurity.d/owasp-crs/crs-setup.conf
+# → SecDefaultAction "phase:1,pass,log,tag:'modsecurity'"
+# → SecDefaultAction "phase:2,pass,log,tag:'modsecurity'"
+```
+
+**Troisième alerte** : les actions par défaut du CRS étaient configurées en mode `pass`. Cela signifie que même si une règle détectait une attaque (incrémentation du score d'anomalie), l'action finale était `pass` (transmettre la requête) au lieu de `deny` (bloquer avec un 403). C'est le comportement par défaut du fichier `crs-setup.conf` livré avec l'image — un choix volontaire des développeurs pour laisser l'utilisateur expliciter sa politique de blocage.
+
+### La Solution
+
+**3 corrections ont été appliquées :**
+
+#### 1. Terraform — Variable d'environnement du conteneur
+Le mode pass-through était également codé en dur dans le provisioning Terraform, rendant la configuration initiale du conteneur systématiquement en `DetectionOnly` :
+
+```hcl
+# AVANT (main.tf)
+env = [
+  "BACKEND=http://juiceshop:3000",
+  "MODSEC_RULE_ENGINE=DetectionOnly",  # ← pass-through
+]
+
+# APRÈS
+env = [
+  "BACKEND=http://juiceshop:3000",
+  "MODSEC_RULE_ENGINE=On",            # ← mode actif
+]
+```
+
+Cette variable d'environnement est utilisée par le template de démarrage de l'image CRS (`/etc/nginx/templates/modsecurity.d/modsecurity.conf.template`) qui génère la configuration initiale au lancement du conteneur. En passant `On` directement, le conteneur naît directement en mode blocage.
+
+#### 2. Ansible — Correction du chemin du fichier modsecurity.conf
+Le playbook `waf-setup.yml` a été corrigé pour cibler le bon fichier :
+
+```yaml
+# AVANT
+- name: "WAF | Activer ModSecurity en mode blocage"
+  lineinfile:
+    path: /etc/nginx/modsecurity.d/modsecurity.conf   # ← inexistant
+    regexp: '^SecRuleEngine'
+    line: 'SecRuleEngine On'
+
+# APRÈS
+- name: "WAF | Activer ModSecurity en mode blocage"
+  lineinfile:
+    path: /etc/modsecurity.d/modsecurity.conf          # ← le vrai fichier
+    regexp: '^SecRuleEngine'
+    line: 'SecRuleEngine On'
+```
+
+#### 3. Ansible — Forçage du blocage dans les actions par défaut du CRS
+Une nouvelle tâche a été ajoutée pour écraser les `SecDefaultAction` pass → deny dans `crs-setup.conf` :
+
+```yaml
+- name: "WAF | Forcer le blocage (deny 403) dans les actions par défaut du CRS"
+  lineinfile:
+    path: /etc/modsecurity.d/owasp-crs/crs-setup.conf
+    regexp: '^SecDefaultAction'
+    line: 'SecDefaultAction "phase:{{ item }},log,deny,status:403,tag:'"'"'modsecurity'"'"'"'
+  loop:
+    - "1"
+    - "2"
+  notify: Recharger Nginx
+```
+
+### Validation
+
+```bash
+# Test d'une injection SQL
+curl -s -o /dev/null -w "HTTP %{http_code}\n" \
+  "http://localhost:8080/rest/products/search?q=test' UNION SELECT null--"
+# → HTTP 403 ✅ Bloqué
+
+# Test d'un XSS
+curl -s -o /dev/null -w "HTTP %{http_code}\n" \
+  "http://localhost:8080/rest/products/search?q=<script>alert('XSS')</script>"
+# → HTTP 403 ✅ Bloqué
+
+# Test d'une requête légitime (vérification non-régression)
+curl -s -o /dev/null -w "HTTP %{http_code}\n" \
+  "http://localhost:8080/rest/products/search?q=apple"
+# → HTTP 200 ✅ Toujours OK
+
+# Vérification de la configuration active
+podman exec waf grep SecRuleEngine /etc/modsecurity.d/modsecurity.conf
+# → SecRuleEngine On
+
+podman exec waf grep SecDefaultAction /etc/modsecurity.d/owasp-crs/crs-setup.conf
+# → SecDefaultAction "phase:1,log,deny,status:403,tag:'modsecurity'"
+# → SecDefaultAction "phase:2,log,deny,status:403,tag:'modsecurity'"
+```
+
+### Pourquoi cette solution et ce qu'il faut en retenir
+
+Ce problème illustre parfaitement la différence entre un WAF en mode **Détection** et un WAF en mode **Prévention** — un concept fondamental en sécurité des applications :
+
+| Mode | Comportement | Usage |
+|------|-------------|-------|
+| `DetectionOnly` | Analyse + Log | Déploiement initial, validation des règles, analyse d'impact |
+| `On` | Analyse + Log + Blocage | Production, après validation des règles et tuning des faux positifs |
+
+Le mode `DetectionOnly` est la meilleure pratique pour l'intégration initiale d'un WAF : il permet de mesurer l'impact sur le trafic légitime (faux positifs) avant d'activer le blocage. **Cependant, il est impératif de basculer en mode `On` une fois la phase de tuning terminée**, sans quoi le WAF n'apporte aucune protection réelle.
+
+L'erreur de chemin dans le playbook Ansible (`/etc/nginx/modsecurity.d/` vs `/etc/modsecurity.d/`) est un piège classique de l'image `owasp/modsecurity-crs:nginx` qui maintient **deux arborescences de configuration** :
+- `/etc/nginx/modsecurity.d/` : fichiers générés par template à partir des variables d'environnement (utilisés comme source par le script d'entrypoint)
+- `/etc/modsecurity.d/` : fichiers réels chargés par Nginx via la directive `modsecurity_rules_file`
+
+L'image utilise un mécanisme de templating au premier démarrage : les fichiers dans `/etc/nginx/templates/` sont copiés et interpolés avec les variables d'environnement (dont `MODSEC_RULE_ENGINE`) pour produire la configuration dans `/etc/modsecurity.d/`. Ansible doit donc cibler les fichiers de destination réels, pas les fichiers sources de template.
+
+Enfin, la découverte des `SecDefaultAction = pass` dans `crs-setup.conf` rappelle que **les actions par défaut du CRS sont indépendantes du `SecRuleEngine`**. On peut avoir `SecRuleEngine On` (moteur actif) mais des `SecDefaultAction = pass` (aucune action de blocage). Les deux paramètres doivent être alignés pour une protection effective.
+
+### Et avec Docker natif ?
+Aucun impact : le problème est indépendant du moteur de conteneurisation. Il s'agit d'une erreur de configuration applicative (mauvais chemin de fichier + politique CRS en mode pass-through), qui serait identique sous Docker, Podman, ou containerd.
