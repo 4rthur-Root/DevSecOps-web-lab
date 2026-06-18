@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/bin/bash
 
 # simulate_killchain.sh - Simulation d'attaque DevSecOps Lab
 # Cible : WAF (http://localhost:8080) → Juice Shop
@@ -12,9 +12,9 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-echo -e "${BLUE}======================================${NC}"
-echo -e "${BLUE}  DEVSECOPS LAB - KILL CHAIN SIM     ${NC}"
-echo -e "${BLUE}======================================${NC}"
+echo -e "${BLUE}==========================================${NC}"
+echo -e "${BLUE}  DEVSECOPS LAB - KILL CHAIN SIMULATION     ${NC}"
+echo -e "${BLUE}==========================================${NC}"
 sleep 1
 
 # PHASE 1 : Reconnaissance
@@ -69,9 +69,9 @@ curl -s -o /dev/null "$TARGET/rest/products/search?q=O'Reilly"
 echo "  Requête légitime envoyée (potentiel faux positif WAF)"
 
 # Résumé 
-echo -e "\n${GREEN}======================================${NC}"
+echo -e "\n${GREEN}===================================${NC}"
 echo -e "${GREEN}  SIMULATION TERMINÉE${NC}"
-echo -e "${GREEN}======================================${NC}"
+echo -e "${GREEN}====================================${NC}"
 echo -e "Vérifie maintenant Grafana → Explore → Loki"
 echo -e "LogQL : ${BLUE}{job=\"waf\"}${NC}"
 echo -e "Filtre blocages : ${BLUE}{job=\"waf\"} |= \"403\"${NC}"
