@@ -7,40 +7,40 @@
 [![MySQL](https://img.shields.io/badge/DB-MySQL%208.0-4479A1?logo=mysql)](https://www.mysql.com/)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-> **Déploiement automatisé d'une stack web sécurisée avec WAF, monitoring SOC et simulation de kill chain.**
+> **Automated deployment of a secure web stack with WAF, SOC monitoring and kill chain simulation.**
 
 ---
 
-## 📋 Table des matières
+## 📋 Table of Contents
 
-- [Aperçu](#-aperçu)
+- [Overview](#-overview)
 - [Architecture](#-architecture)
-- [Stack technique](#-stack-technique)
-- [Prérequis](#-prérequis)
-- [Déploiement rapide](#-déploiement-rapide)
-- [Simulation d'attaque (Kill Chain)](#-simulation-dattaque-kill-chain)
-- [Monitoring SOC](#-monitoring-soc)
-- [Structure du projet](#-structure-du-projet)
-- [Problèmes rencontrés](#-problèmes-rencontrés)
+- [Tech Stack](#-tech-stack)
+- [Prerequisites](#-prerequisites)
+- [Quick Start](#-quick-start)
+- [Attack Simulation (Kill Chain)](#-attack-simulation-kill-chain)
+- [SOC Monitoring](#-soc-monitoring)
+- [Project Structure](#-project-structure)
+- [Troubleshooting](#-troubleshooting)
 - [Documentation](#-documentation)
 
 ---
 
-## 🎯 Aperçu
+## 🎯 Overview
 
-Ce laboratoire DevSecOps déploie une infrastructure web complète **100% locale** avec **Docker/Podman**, sécurisée par un **WAF (ModSecurity + OWASP CRS)**, supervisée par une **stack Grafana/Loki**, et testée par des **simulations d'attaque** couvrant l'OWASP Top 10 2025.
+This DevSecOps lab deploys a complete web infrastructure **100% locally** with **Docker/Podman**, secured by a **WAF (ModSecurity + OWASP CRS)**, supervised by a **Grafana/Loki stack**, and tested by **attack simulations** covering OWASP Top 10 2025.
 
-**Objectif portfolio SOC Analyst** : démontrer la capacité à déployer, configurer, attaquer, détecter et remédier des incidents de sécurité dans un environnement conteneurisé.
+**Portfolio Objective for SOC Analyst**: demonstrate the ability to deploy, configure, attack, detect and remediate security incidents in a containerized environment.
 
-### Ce que le projet démontre
+### What the project demonstrates
 
-- ✅ **IaC complet** : Terraform + Ansible, tout est versionné et reproductible
-- ✅ **WAF en production** : 846 règles OWASP CRS, blocage effectif (403)
-- ✅ **Durcissement MySQL** : Politique de mots de passe, SSL/TLS, moindre privilège
-- ✅ **Monitoring SOC** : Dashboard Grafana avec requêtes LogQL temps réel
-- ✅ **Kill chain réaliste** : Reconnaissance → SQLi → XSS → Path Traversal
-- ✅ **Gestion des secrets** : Variables sensibles chiffrées avec Ansible Vault
-- ✅ **Troubleshooting documenté** : 12 problèmes réels avec Root Cause Analysis
+- ✅ **Complete IaC**: Terraform + Ansible, everything is versioned and reproducible
+- ✅ **Production WAF**: 846 OWASP CRS rules, effective blocking (403)
+- ✅ **MySQL Hardening**: Password policy, SSL/TLS, least privilege
+- ✅ **SOC Monitoring**: Grafana dashboard with real-time LogQL queries
+- ✅ **Realistic Kill Chain**: Reconnaissance → SQLi → XSS → Path Traversal
+- ✅ **Secret Management**: Sensitive variables encrypted with Ansible Vault
+- ✅ **Documented Troubleshooting**: 12 real problems with Root Cause Analysis
 
 ---
 
@@ -48,7 +48,7 @@ Ce laboratoire DevSecOps déploie une infrastructure web complète **100% locale
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│                        Hôte Linux (Podman)                       │
+│                        Linux Host (Podman)                       │
 │  ┌────────────────────────────────────────────────────────────┐  │
 │  │                    devsecops-net                            │  │
 │  │                                                             │  │
@@ -56,7 +56,7 @@ Ce laboratoire DevSecOps déploie une infrastructure web complète **100% locale
 │  │  │          │    │              │    │                │    │  │
 │  │  │  WAF     │───>│  Juice Shop  │───>│    MySQL 8.0   │    │  │
 │  │  │  :8080   │    │  :3000       │    │    :3306       │    │  │
-│  │  │  Nginx + │    │  (vulnérable)│    │    (durci)     │    │  │
+│  │  │  Nginx + │    │  (vulnerable)│    │    (hardened)  │    │  │
 │  │  │  ModSec  │    │              │    │                │    │  │
 │  │  └────┬─────┘    └──────────────┘    └────────────────┘    │  │
 │  │       │                                                     │  │
@@ -68,34 +68,34 @@ Ce laboratoire DevSecOps déploie une infrastructure web complète **100% locale
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-*Schéma détaillé avec diagramme Mermaid : [`docs/architecture.md`](docs/architecture.md)*
+*Detailed diagram with Mermaid: [docs/architecture.md](docs/architecture.md)*
 
 ---
 
-## ⚙️ Stack technique
+## ⚙️ Tech Stack
 
-| Domaine | Technologie | Version |
-|---------|-------------|---------|
+| Domain | Technology | Version |
+|--------|-------------|---------|
 | **Infrastructure as Code** | Terraform + Provider Docker | ~> 3.0 |
-| **Configuration Management** | Ansible + Ansible Vault | Dernière |
-| **Conteneurisation** | Podman (rootless) | Dernière |
-| **Application cible** | OWASP Juice Shop | latest |
+| **Configuration Management** | Ansible + Ansible Vault | Latest |
+| **Containerization** | Podman (rootless) | Latest |
+| **Target Application** | OWASP Juice Shop | latest |
 | **WAF** | Nginx + ModSecurity 3 + OWASP CRS | 1.30.1 / 3.0.15 |
-| **Base de données** | MySQL 8.0 | 8.0 |
+| **Database** | MySQL 8.0 | 8.0 |
 | **Monitoring** | Grafana + Loki + Promtail | 13.0.2 / latest |
-| **Attaque** | SQLMap + Nmap | Dernière |
+| **Attack Simulation** | SQLMap + Nmap | Latest |
 
 ---
 
-## 📦 Prérequis
+## 📦 Prerequisites
 
-- **Linux** (testé sur Fedora / Debian / Arch)
-- **Podman** (ou Docker) avec le socket activé
+- **Linux** (tested on Fedora / Debian / Arch)
+- **Podman** (or Docker) with socket enabled
 - **Terraform** ≥ 1.5
 - **Ansible** ≥ 2.15
 - **Python 3** + pip/pipx
 
-Installation automatisée :
+Automated installation:
 
 ```bash
 chmod +x tests.sh && ./tests.sh
@@ -103,108 +103,108 @@ chmod +x tests.sh && ./tests.sh
 
 ---
 
-## 🚀 Déploiement rapide
+## 🚀 Quick Start
 
 ```bash
-# 1. Provisionner l'infrastructure (5 conteneurs)
+# 1. Provision infrastructure (5 containers)
 terraform -chdir=terraform apply
 
-# 2. Configurer WAF + DB + Monitoring
+# 2. Configure WAF + DB + Monitoring
 ansible-playbook ansible/playbooks/site.yml --ask-vault-pass
 
-# 3. Vérifier que tout tourne
+# 3. Verify everything is running
 podman ps
 ```
 
-### Accès aux services
+### Service Access
 
-| Service | URL | Identifiants |
-|---------|-----|--------------|
+| Service | URL | Credentials |
+|---------|-----|-------------|
 | **WAF (Juice Shop)** | [http://localhost:8080](http://localhost:8080) | — |
 | **Grafana** | [http://localhost:3001](http://localhost:3001) | `admin` / `as-you-go` |
 | **Loki** | [http://localhost:3100](http://localhost:3100) | — (API) |
 
 ---
 
-## ⚔️ Simulation d'attaque (Kill Chain)
+## ⚔️ Attack Simulation (Kill Chain)
 
 ```bash
 cd attack_simulation && bash simulate_killchain.sh
 ```
 
-Le script exécute 5 phases couvrant l'**OWASP Top 10 2025** :
+The script executes 5 phases covering the **OWASP Top 10 2025**:
 
-| Phase | Catégorie OWASP 2025 | Technique | Résultat attendu |
+| Phase | OWASP 2025 Category | Technique | Expected Result |
 |-------|----------------------|-----------|-----------------|
-| **Reconnaissance** | A02 Security Misconfiguration | Scan de chemins sensibles | 403 sur /phpinfo.php, /.git |
-| **SQL Injection** | A05 Injection | OR 1=1, UNION SELECT, DROP TABLE | **403 bloqué** |
-| **XSS** | A05 Injection | Script alert, version encodée | **403 bloqué** |
-| **Path Traversal** | A01 Broken Access Control | /../../etc/passwd | 200 (chemin normalisé) |
-| **Faux positif** | WAF Tuning | Recherche O'Reilly | 500 (erreur app) |
+| **Reconnaissance** | A02 Security Misconfiguration | Scan for sensitive paths | 403 on /phpinfo.php, /.git |
+| **SQL Injection** | A05 Injection | OR 1=1, UNION SELECT, DROP TABLE | **403 blocked** |
+| **XSS** | A05 Injection | Script alert, encoded version | **403 blocked** |
+| **Path Traversal** | A01 Broken Access Control | /../../etc/passwd | 200 (normalized path) |
+| **False Positive** | WAF Tuning | O'Reilly search | 500 (app error) |
 
-### Résultat attendu
+### Expected Result
 
 ```
 [PHASE 1] Reconnaissance (A02 Security Misconfiguration)
-  /phpinfo.php → HTTP 403   ← informations serveur protégées
-  /.git/config → HTTP 403   ← repository exposé protégé
+  /phpinfo.php → HTTP 403   ← server information protected
+  /.git/config → HTTP 403   ← exposed repository protected
 
 [PHASE 2] SQL Injection (A05 Injection)
-  Payload : OR 1=1 → HTTP 403   ← WAF bloque
+  Payload : OR 1=1 → HTTP 403   ← WAF blocks
 
 [PHASE 3] Cross-Site Scripting (XSS) (A05 Injection)
-  Payload : script alert → HTTP 403   ← WAF bloque
+  Payload : script alert → HTTP 403   ← WAF blocks
 ```
 
-![SQLi bloquée](docs/evidences/Sqli-bloque.png)
+![SQLi blocked](docs/evidences/Sqli-bloque.png)
 
 ---
 
-## 📊 Monitoring SOC
+## 📊 SOC Monitoring
 
-### Dashboard Grafana
+### Grafana Dashboard
 
-Un dashboard **Security Overview** avec 3 panels est préconfiguré :
+A **Security Overview** dashboard with 3 panels is pre-configured:
 
-1. **Volume de logs WAF** — time series de toutes les requêtes
-2. **Requêtes bloquées (403)** — time series des blocages (en rouge)
-3. **Top URIs attaquées** — bar chart horizontal des cibles les plus visées
+1. **WAF Log Volume** — time series of all requests
+2. **Blocked Requests (403)** — time series of blocks (in red)
+3. **Top Attacked URIs** — horizontal bar chart of most-targeted endpoints
 
-### Requêtes LogQL utilisées
+### LogQL Queries Used
 
 ```logql
-# Volume total de logs
+# Total log volume
 count_over_time({job="waf"} [$__interval])
 
-# Requêtes bloquées
+# Blocked requests
 count_over_time({job="waf"} |= "403" [$__interval])
 
-# Top URIs attaquées (classement)
+# Top attacked URIs (ranking)
 topk(10, sum by (uri) (count_over_time({job="waf"} |= "403" | json | __error__="" [$__interval])))
 ```
 
-![Requêtes LogQL](docs/evidences/queries-presents.png)
+![LogQL Queries](docs/evidences/queries-presents.png)
 
-### Pipeline de logs
+### Log Pipeline
 
 ```
-WAF (Nginx logs JSON) → Volume waf-logs → Promtail → Loki → Grafana
+WAF (Nginx logs JSON) → waf-logs volume → Promtail → Loki → Grafana
 ```
 
-![Pipeline valide](docs/evidences/pipeline-valide.png)
+![Valid Pipeline](docs/evidences/pipeline-valide.png)
 
 ---
 
-## 📁 Structure du projet
+## 📁 Project Structure
 
 ```
 devsecops-web-lab/
 │
 ├── terraform/                         # Infrastructure as Code
-│   ├── main.tf                        # 5 conteneurs, réseau, volumes
-│   ├── variables.tf                   # Variables sensibles
-│   ├── outputs.tf                     # URLs de sortie
-│   └── grafana_provisioning/          # Provisioning Grafana (IaC)
+│   ├── main.tf                        # 5 containers, network, volumes
+│   ├── variables.tf                   # Sensitive variables
+│   ├── outputs.tf                     # Output URLs
+│   └── grafana_provisioning/          # Grafana provisioning (IaC)
 │       ├── datasources/loki.yml
 │       └── dashboards/
 │           ├── dashboard_provider.yml
@@ -214,59 +214,59 @@ devsecops-web-lab/
 │   ├── ansible.cfg
 │   ├── inventory.ini
 │   ├── playbooks/
-│   │   ├── site.yml                   # Playbook maître
-│   │   ├── setup-python.yml           # Bootstrap Python
+│   │   ├── site.yml                   # Master playbook
+│   │   ├── setup-python.yml           # Python bootstrap
 │   │   ├── waf-setup.yml              # Nginx + ModSecurity + Promtail
-│   │   ├── db-hardening.yml           # Durcissement MySQL
-│   │   └── monitoring.yml             # Vérification pipeline
+│   │   ├── db-hardening.yml           # MySQL hardening
+│   │   └── monitoring.yml             # Pipeline verification
 │   ├── files/
-│   │   ├── waf/                       # Config WAF (Nginx, ModSecurity)
-│   │   └── promtail/                  # Config Promtail
+│   │   ├── waf/                       # WAF config (Nginx, ModSecurity)
+│   │   └── promtail/                  # Promtail config
 │   └── group_vars/all/
-│       ├── vars.yml                   # Variables normales
-│       └── vault.yml                  # Variables chiffrées
+│       ├── vars.yml                   # Normal variables
+│       └── vault.yml                  # Encrypted variables
 │
 ├── attack_simulation/
-│   └── simulate_killchain.sh          # Kill chain automatisée
+│   └── simulate_killchain.sh          # Automated kill chain
 │
 ├── grafana/dashboards/
-│   └── security-dashboard.json        # Dashboard exporté
+│   └── security-dashboard.json        # Exported dashboard
 │
 ├── docs/
-│   ├── architecture.md               # Schéma et détails d'architecture
-│   ├── incident-report.md            # Rapport d'incident SOC
-│   ├── ISSUES.md                     # Troubleshooting (12 problèmes)
-│   ├── Resources.md                  # Documentation et références
-│   └── evidences/                    # Captures d'écran
+│   ├── architecture.md               # Architecture diagram and details
+│   ├── incident-report.md            # SOC incident report
+│   ├── ISSUES.md                     # Troubleshooting (12 problems)
+│   ├── Resources.md                  # Documentation and references
+│   └── evidences/                    # Screenshots
 │       ├── Sqli-bloque.png
 │       ├── Containers.png
 │       ├── pipeline-valide.png
 │       └── ...
 │
-├── tests.sh                          # Script d'installation des dépendances
-└── README.md                         # Cette page
+├── tests.sh                          # Dependency installation script
+└── README.md                         # This page
 ```
 
 ---
 
-## 🔧 Problèmes rencontrés
+## 🔧 Troubleshooting
 
-12 incidents documentés dans [`docs/ISSUES.md`](docs/ISSUES.md) avec analyse de cause racine :
+12 documented incidents in [docs/ISSUES.md](docs/ISSUES.md) with root cause analysis:
 
-| # | Problème | Solution |
-|---|----------|----------|
-| 1 | Permission denied logs WAF | Bind mount → Volume Docker nommé |
-| 2 | Connection reset by peer | Port interne 80 → 8080 |
-| 3 | Python absent des conteneurs | Bootstrap avec module `raw` |
-| 4 | Syntaxe Nginx (backslash) | Suppression du caractère d'échappement |
-| 5 | Variable ModSecurity inconnue | Retrait du log_format propriétaire |
-| 6 | pkill/pgrep introuvables | Installation de procps |
-| 7 | Logs symlinkés vers /dev/stdout | Remplacement par de vrais fichiers |
-| 8 | Mot de passe MySQL vault incorrect | Alignement Terraform/Ansible |
-| 9 | Plugin audit_log absent (Community) | Alternative validate_password |
-| 10 | Secrets exposés via podman inspect | Documentation des bonnes pratiques |
-| 11 | Provisioning Grafana échoué | Configuration manuelle de la datasource |
-| 12 | WAF ne bloque rien (200 au lieu de 403) | `SecRuleEngine On` + `SecDefaultAction deny` |
+| # | Problem | Solution |
+|---|---------|----------|
+| 1 | Permission denied logs WAF | Bind mount → Named Docker volume |
+| 2 | Connection reset by peer | Internal port 80 → 8080 |
+| 3 | Python missing from containers | Bootstrap with `raw` module |
+| 4 | Nginx syntax error (backslash) | Remove escape character |
+| 5 | Unknown ModSecurity variable | Remove proprietary log_format |
+| 6 | pkill/pgrep not found | Install procps |
+| 7 | Logs symlinked to /dev/stdout | Replace with real files |
+| 8 | Incorrect MySQL vault password | Align Terraform/Ansible |
+| 9 | audit_log plugin missing (Community) | Alternative validate_password |
+| 10 | Secrets exposed via podman inspect | Document best practices |
+| 11 | Grafana provisioning failed | Manual datasource configuration |
+| 12 | WAF blocks nothing (200 instead of 403) | `SecRuleEngine On` + `SecDefaultAction deny` |
 
 ---
 
@@ -274,26 +274,26 @@ devsecops-web-lab/
 
 | Document | Description |
 |----------|-------------|
-| [`docs/architecture.md`](docs/architecture.md) | Schéma d'architecture et flux de données |
-| [`docs/incident-report.md`](docs/incident-report.md) | Rapport d'incident SOC (kill chain + remédiation) |
-| [`docs/ISSUES.md`](docs/ISSUES.md) | Troubleshooting détaillé (12 entrées) |
-| [`docs/Resources.md`](docs/Resources.md) | Sources, documentations et références |
+| [docs/architecture.md](docs/architecture.md) | Architecture diagram and data flow |
+| [docs/incident-report.md](docs/incident-report.md) | SOC incident report (kill chain + remediation) |
+| [docs/ISSUES.md](docs/ISSUES.md) | Detailed troubleshooting (12 entries) |
+| [docs/Resources.md](docs/Resources.md) | Sources, documentation and references |
 
 ---
 
-## 🧪 Le projet est terminé. Voici des pistes d'améliorations possibles
+## 🧪 Project is complete. Possible improvements
 
-- Intégration pipeline CI/CD (GitHub Actions) pour apply automatique
-- Scan de vulnérabilités des images avec Trivy
-- Règles d'exclusion CRS avancées pour les faux positifs
-- Alerting Grafana par email/Slack sur les pics de blocage
-
----
-
-## 📄 Licence
-
-MIT — voir le fichier [LICENSE](LICENSE).
+- CI/CD pipeline integration (GitHub Actions) for automatic apply
+- Container image vulnerability scanning with Trivy
+- Advanced CRS exclusion rules for false positives
+- Grafana alerting via email/Slack on blocking spikes
 
 ---
 
-*Projet réalisé dans le cadre d'une démarche d'apprentissage et de démonstration de compétences DevSecOps / SOC Analyst.*
+## 📄 License
+
+MIT — see [LICENSE](LICENSE) file.
+
+---
+
+*Project completed as part of a DevSecOps / SOC Analyst learning and skill demonstration initiative.*

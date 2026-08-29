@@ -1,88 +1,73 @@
-# Rapport d'Incident Sécurité — DevSecOps Web Lab
+# Security Incident Report — DevSecOps Web Lab
 **Date :** 2026-06-18  
-**Analyste :** KPODONOU K. Gaël  
-**Sévérité :** Haute (simulation contrôlée)  
-**Statut :** Résolu
+**Analyst :** KPODONOU K. Gaël  
+**Severity :** High (controlled simulation)  
+**Status :** Resolved
 
 ---
 
-## 1. Résumé Exécutif
+## 1. Executive Summary
 
-Une simulation de kill chain a été conduite sur l'infrastructure 
-DevSecOps Web Lab afin de valider l'efficacité du WAF 
-(Nginx + ModSecurity + OWASP CRS) déployé devant l'application 
-OWASP Juice Shop. L'attaque a couvert quatre phases : 
-reconnaissance, injection SQL, XSS, et path traversal. 
-Le WAF a détecté et bloqué l'ensemble des payloads malveillants. 
-Un faux positif a été identifié et corrigé via une règle 
-d'exception déployée en IaC.
+A kill chain simulation was conducted on the DevSecOps Web Lab infrastructure to validate the effectiveness of the deployed WAF (Nginx + ModSecurity + OWASP CRS) in front of the OWASP Juice Shop application. The attack covered four phases: reconnaissance, SQL injection, XSS, and path traversal. The WAF detected and blocked all malicious payloads. A false positive was identified and corrected through an exception rule deployed in IaC.
 
 ---
 
-## 2. Infrastructure Cible
+## 2. Target Infrastructure
 
-| Composant | Rôle | Technologie |
+| Component | Role | Technology |
 |---|---|---|
-| WAF | Reverse proxy + pare-feu applicatif | Nginx + ModSecurity + OWASP CRS |
-| Juice Shop | Application web vulnérable (cible) | Node.js / Angular |
-| MySQL | Base de données | MySQL 8.0 (hardenée) |
-| Loki + Grafana | Centralisation et visualisation des logs | Grafana Stack |
+| WAF | Reverse proxy + application firewall | Nginx + ModSecurity + OWASP CRS |
+| Juice Shop | Vulnerable web app (target) | Node.js / Angular |
+| MySQL | Database | MySQL 8.0 (hardened) |
+| Loki + Grafana | Log centralization and visualization | Grafana Stack |
 
-Réseau isolé `devsecops-net` — Juice Shop non exposé directement,
-uniquement accessible via le WAF sur le port 8080.
+Isolated `devsecops-net` network — Juice Shop not exposed directly, only accessible through the WAF on port 8080.
 
 ---
 
-## 3. Chronologie de l'Attaque
+## 3. Attack Timeline
 
-| Heure | Phase | Action | Résultat WAF |
+| Time | Phase | Action | WAF Result |
 |---|---|---|---|
-| 09:43:50 | Reconnaissance | Scan de chemins sensibles (`/admin`, `/.git/config`) | 200 (Juice Shop SPA absorbe) |
-| 09:44:03 | SQLi | `OR '1'='1` | **403 Bloqué** |
-| 09:44:06 | SQLi | `UNION SELECT null,null,null--` | **403 Bloqué** |
-| 09:44:12 | SQLi | `DROP TABLE users;--` | **403 Bloqué** |
-| 09:44:20 | XSS | `<script>alert('XSS')</script>` | **403 Bloqué** |
-| 09:44:26 | XSS encodé | `%3Cscript%3Ealert%281%29` | **403 Bloqué** |
-| 09:44:31 | Path Traversal | `../../../../etc/passwd` | **403 Bloqué** |
-| 09:44:45 | Faux positif | `O'Reilly` (recherche légitime) | 200 (OK) |
+| 09:43:50 | Reconnaissance | Scan for sensitive paths (`/admin`, `/.git/config`) | 200 (Juice Shop SPA absorbs) |
+| 09:44:03 | SQLi | `OR '1'='1` | **403 Blocked** |
+| 09:44:06 | SQLi | `UNION SELECT null,null,null--` | **403 Blocked** |
+| 09:44:12 | SQLi | `DROP TABLE users;--` | **403 Blocked** |
+| 09:44:20 | XSS | `<script>alert('XSS')</script>` | **403 Blocked** |
+| 09:44:26 | Encoded XSS | `%3Cscript%3Ealert%281%29` | **403 Blocked** |
+| 09:44:31 | Path Traversal | `../../../../etc/passwd` | **403 Blocked** |
+| 09:44:45 | False Positive | `O'Reilly` (legitimate search) | 200 (OK) |
 
 ---
 
-## 4. Analyse des Logs (LogQL)
+## 4. Log Analysis (LogQL)
 
-**Requête de détection des blocages :**
+**Block Detection Query:**
 ```logql
 {job="waf"} |= "403"
 ```
 
-**Observation :** pic de 403 entre 09:44:00 et 09:45:00 
-correspondant exactement à la simulation d'attaque. 
-Toutes les requêtes légitimes (200) ont continué à passer 
-normalement — aucune interruption de service.
+**Observation:** Spike of 403s between 09:44:00 and 09:45:00 exactly matching the attack simulation. All legitimate requests (200) continued to pass normally — no service interruption.
 
 ---
 
-## 5. Faux Positif Identifié
+## 5. Identified False Positive
 
-**Symptôme :** Les connexions WebSocket de Juice Shop vers 
-`/socket.io/` recevaient des HTTP 403. L'application perdait 
-sa connexion temps réel.
+**Symptom:** WebSocket connections from Juice Shop to `/socket.io/` were receiving HTTP 403. The app lost its real-time connection.
 
-**Cause racine :** Les paramètres `EIO`, `transport` et `sid` 
-dans l'URL Socket.IO déclenchent la règle CRS 
-`REQUEST-920-PROTOCOL-ENFORCEMENT` (score d'anomalie trop élevé).
+**Root Cause:** The parameters `EIO`, `transport` and `sid` in the Socket.IO URL triggered the CRS rule `REQUEST-920-PROTOCOL-ENFORCEMENT` (anomaly score too high).
 
-**Remédiation :**
+**Remediation:**
 ```nginx
 SecRule REQUEST_URI "@beginsWith /socket.io/" \
     "id:1001,phase:1,pass,nolog,\
     ctl:ruleEngine=DetectionOnly,\
-    msg:'Exclusion socket.io - trafic legitime Juice Shop'"
+    msg:'Exclusion socket.io - legitimate Juice Shop traffic'"
 ```
 
-Déployée via Ansible (`waf-setup.yml`) — idempotente et versionnée.
+Deployed via Ansible (`waf-setup.yml`) — idempotent and versioned.
 
-**Vérification post-remédiation :**
+**Post-remediation verification:**
 ```bash
 curl http://localhost:8080/socket.io/?EIO=4&transport=polling → 200 ✅
 curl "http://localhost:8080/rest/products/search?q=UNION SELECT" → 403 ✅
@@ -90,46 +75,35 @@ curl "http://localhost:8080/rest/products/search?q=UNION SELECT" → 403 ✅
 
 ---
 
-## 6. Hardening Base de Données
+## 6. Database Hardening
 
-En parallèle de l'analyse WAF, le playbook `db-hardening.yml` 
-a appliqué les contrôles CIS Benchmark MySQL 8.0 :
+In parallel with WAF analysis, the `db-hardening.yml` playbook applied CIS Benchmark MySQL 8.0 controls:
 
-- Suppression des utilisateurs anonymes
-- Restriction de root aux connexions locales uniquement
-- Politique de mots de passe (validate_password MEDIUM, 12 caractères)
-- SSL/TLS activé (`require_secure_transport = ON`)
-- Désactivation de `local-infile` et `symbolic-links`
-- Création d'un utilisateur applicatif avec privilèges minimaux
+- Removal of anonymous users
+- Root restricted to localhost connections only
+- Password policy (validate_password MEDIUM, 12 characters)
+- SSL/TLS enabled (`require_secure_transport = ON`)
+- Disabled `local-infile` and `symbolic-links`
+- Creation of application user with minimal privileges
 
 ---
 
-## 7. Recommandations
+## 7. Recommendations
 
-**Court terme :**
-- Activer les logs d'audit ModSecurity (`/var/log/modsec_audit.log`) 
-  pour avoir le détail des règles déclenchées par ID
-- Configurer une alerte Grafana sur `count_over_time({job="waf"} |= "403" [1m]) > 10`
+**Short-term:**
+- Enable ModSecurity audit logging (`/var/log/modsec_audit.log`) for detailed rule-triggered information by ID
+- Configure Grafana alert on `count_over_time({job="waf"} |= "403" [1m]) > 10`
 
-**Moyen terme :**
-- Remplacer les secrets Terraform (`terraform.tfvars`) par 
-  Podman Secrets ou un gestionnaire de secrets dédié
-- Passer les images Docker sur des versions pinned 
-  (éviter `:latest` en production)
+**Medium-term:**
+- Replace Terraform secrets (`terraform.tfvars`) with Podman Secrets or dedicated secret manager
+- Pin image versions (avoid `:latest` in production)
 
-**Long terme :**
-- Intégrer un SIEM (Wazuh) pour corréler les événements 
-  WAF avec d'autres sources de logs
-- Mettre en place un pipeline CI/CD qui relance `site.yml` 
-  à chaque commit (GitOps)
+**Long-term:**
+- Integrate SIEM (Wazuh) to correlate WAF events with other log sources
+- Implement CI/CD pipeline that runs `site.yml` on each commit (GitOps)
 
 ---
 
 ## 8. Conclusion
 
-L'infrastructure DevSecOps déployée en IaC (Terraform + Ansible) 
-démontre une protection applicative efficace. Le WAF bloque 
-les vecteurs d'attaque OWASP Top 10 les plus courants tout en 
-permettant le tuning des faux positifs via des règles d'exception 
-versionnées. La chaîne d'observabilité Promtail → Loki → Grafana 
-permet une détection et une analyse en temps quasi-réel.
+The DevSecOps infrastructure deployed in IaC (Terraform + Ansible) demonstrates effective application protection. The WAF blocks the most common OWASP Top 10 attack vectors while allowing false-positive tuning through versioned exception rules. The observability chain Promtail → Loki → Grafana enables near-real-time detection and analysis.

@@ -1,57 +1,77 @@
-# DevOps Security Lab - Ressources & Références
+# DevOps Security Lab - Resources & References
 
-> Ce document rassemble l'ensemble des ressources, documentations et outils qui ont permis la conception et le déploiement de ce laboratoire DevSecOps. Chaque section est organisée par domaine technique avec une brève explication de son utilité dans le projet.
-
----
-
-## Sommaire
-
-1. [🔗 Ressources d'Inspiration](#-ressources-dinspiration)
-2. [📖 Documentation Officielle par Technologie](#-documentation-officielle-par-technologie)
-3. [🛡️ Sécurité Applicative & WAF](#️-sécurité-applicative--waf)
-4. [🐳 Conteneurisation & Orchestration](#-conteneurisation--orchestration)
-5. [🏗️ Infrastructure as Code (Terraform)](#️-infrastructure-as-code-terraform)
-6. [⚙️ Configuration Management (Ansible)](#️-configuration-management-ansible)
-7. [📊 Monitoring & Observability (Grafana + Loki + Promtail)](#-monitoring--observability-grafana--loki--promtail)
-8. [🕵️ Outils d'Attaque & Simulation](#️-outils-dattaque--simulation)
-9. [🔐 Références Hardening MySQL](#-références-hardening-mysql)
-10. [📡 Vulnérabilités et CVE](#-vulnérabilités-et-cve)
-11. [🎯 OWASP Top 10 2025 (en vigueur)](#-owasp-top-10-2025-en-vigueur)
-12. [📚 Lectures Complémentaires DevSecOps](#-lectures-complémentaires-devsecops)
+> This document brings together all resources, documentation and tools that enabled the design and deployment of this DevSecOps lab. Each section is organized by technical domain with a brief explanation of its usefulness in the project.
 
 ---
 
-## 🔗 Ressources d'Inspiration
+## Table of Contents
 
-Ces ressources ont inspiré la conception globale du projet :
-
-| Ressource | Utilité dans le projet |
-|-----------|------------------------|
-| [OWASP Juice Shop](https://hub.docker.com/r/bkimminich/juice-shop) — Image Docker officielle | Application cible volontairement vulnérable pour tester le WAF et simuler la kill chain |
-| [OWASP ModSecurity CRS (Core Rule Set)](https://coreruleset.org/) — Site officiel | Ensemble de règles OWASP pour ModSecurity qui équipe le WAF (846 règles chargées) |
-| [Grafana Loki](https://grafana.com/oss/loki/) — Site officiel | Agrégateur de logs centralisé, back-end du monitoring SOC |
-| [Promtail](https://grafana.com/docs/loki/latest/send-data/promtail/) — Documentation Grafana | Agent de collecte de logs déployé dans le conteneur WAF pour alimenter Loki |
-| [Database Hardening - Guide Medium](https://medium.com/@abhijitgm5/database-hardening-for-mysql-postgresql-oracle-mongodb-6f661b7ccd7c) | Hardening comparatif MySQL / PostgreSQL / Oracle / MongoDB |
-| [Oracle MySQL Security Guide](https://docs.oracle.com/en/database/oracle/mysql/8.0/security.html) | Guide de sécurité officiel Oracle pour MySQL 8.0 |
+- [DevOps Security Lab - Resources \& References](#devops-security-lab---resources--references)
+  - [Table of Contents](#table-of-contents)
+  - [🔗 Inspiration Resources](#-inspiration-resources)
+  - [📖 Official Documentation by Technology](#-official-documentation-by-technology)
+  - [🛡️ Sécurité Applicative \& WAF](#️-sécurité-applicative--waf)
+    - [🔑 Key Concepts Applied in This Project](#-key-concepts-applied-in-this-project)
+  - [🐳 Conteneurisation \& Orchestration](#-conteneurisation--orchestration)
+    - [Podman Rootless Issue Encountered](#podman-rootless-issue-encountered)
+  - [🏗️ Infrastructure as Code (Terraform)](#️-infrastructure-as-code-terraform)
+  - [⚙️ Configuration Management (Ansible)](#️-configuration-management-ansible)
+  - [📊 Monitoring \& Observability (Grafana + Loki + Promtail)](#-monitoring--observability-grafana--loki--promtail)
+    - [Requêtes LogQL utilisées](#requêtes-logql-utilisées)
+  - [🕵️ Outils d'Attaque \& Simulation](#️-outils-dattaque--simulation)
+  - [🔐 Références Hardening MySQL](#-références-hardening-mysql)
+    - [📋 Récapitulatif](#-récapitulatif)
+    - [🔧 Améliorations Critiques Apportées](#-améliorations-critiques-apportées)
+      - [1. Politique de Mots de Passe (validate\_password)](#1-politique-de-mots-de-passe-validate_password)
+      - [2. Configuration Sécurisée my.cnf](#2-configuration-sécurisée-mycnf)
+      - [3. SSL/TLS pour les Connexions](#3-ssltls-pour-les-connexions)
+      - [4. Audit Logging](#4-audit-logging)
+    - [⚠️ Remarques Importantes](#️-remarques-importantes)
+    - [🔍 Audit Final - Vérifications Intégrées](#-audit-final---vérifications-intégrées)
+  - [📚 Sources Officielles](#-sources-officielles)
+    - [Documentation de Référence](#documentation-de-référence)
+    - [Vulnérabilités Récentes (Exemples)](#vulnérabilités-récentes-exemples)
+  - [🎯 OWASP Top 10 2025 (en vigueur)](#-owasp-top-10-2025-en-vigueur)
+    - [Évolution OWASP 2021 → 2025](#évolution-owasp-2021--2025)
+  - [📚 Lectures Complémentaires DevSecOps](#-lectures-complémentaires-devsecops)
+    - [Culture et Méthodologie](#culture-et-méthodologie)
+    - [Outils DevSecOps](#outils-devsecops)
+    - [Chaînes YouTube et Formations](#chaînes-youtube-et-formations)
+  - [🎯 Conclusion du Projet](#-conclusion-du-projet)
 
 ---
 
-## 📖 Documentation Officielle par Technologie
+## 🔗 Inspiration Resources
 
-Documentations techniques utilisées pour le développement et le débogage :
+These resources inspired the overall design of the project:
+
+| Resource | Usefulness in the project |
+|----------|--------------------------|
+| [OWASP Juice Shop](https://hub.docker.com/r/bkimminich/juice-shop) — Official Docker image | Intentionally vulnerable target application to test the WAF and simulate the kill chain |
+| [OWASP ModSecurity CRS (Core Rule Set)](https://coreruleset.org/) — Official site | Set of OWASP rules for ModSecurity that equips the WAF (846 rules loaded) |
+| [Grafana Loki](https://grafana.com/oss/loki/) — Official site | Centralized log aggregator, SOC monitoring backend |
+| [Promtail](https://grafana.com/docs/loki/latest/send-data/promtail/) — Grafana documentation | Log collection agent deployed in the WAF container to feed Loki |
+| [Database Hardening - Medium Guide](https://medium.com/@abhijitgm5/database-hardening-for-mysql-postgresql-oracle-mongodb-6f661b7ccd7c) | Comparative hardening MySQL / PostgreSQL / Oracle / MongoDB |
+| [Oracle MySQL Security Guide](https://docs.oracle.com/en/database/oracle/mysql/8.0/security.html) | Official Oracle security guide for MySQL 8.0 |
+
+---
+
+## 📖 Official Documentation by Technology
+
+Technical documentation used for development and debugging:
 
 | Technologie | Documentation | Usage |
 |-------------|---------------|-------|
-| **Terraform** | [Provider Docker (kreuzwerker)](https://registry.terraform.io/providers/kreuzwerker/docker/latest/docs) | Provisionnement des 5 conteneurs, réseau Docker, volumes nommés |
-| **Terraform** | [Ressource docker_container](https://registry.terraform.io/providers/kreuzwerker/docker/latest/docs/resources/container) | Configuration des conteneurs : ports, env vars, volumes |
-| **Terraform** | [Ressource docker_network](https://registry.terraform.io/providers/kreuzwerker/docker/latest/docs/resources/network) | Réseau isolé devsecops-net pour l'isolation des conteneurs |
-| **Terraform** | [Ressource docker_volume](https://registry.terraform.io/providers/kreuzwerker/docker/latest/docs/resources/volume) | Volume nommé waf-logs pour contourner le problème de permission des bind mounts (ISSUES.md #1) |
-| **Ansible** | [Module lineinfile](https://docs.ansible.com/ansible/latest/collections/ansible/builtin/lineinfile_module.html) | Modification des fichiers de config Nginx, ModSecurity et MySQL |
-| **Ansible** | [Module community.mysql](https://docs.ansible.com/ansible/latest/collections/community/mysql/index.html) | Exécution des requêtes MySQL de hardening |
-| **Ansible** | [Module get_url](https://docs.ansible.com/ansible/latest/collections/ansible/builtin/get_url_module.html) | Téléchargement du binaire Promtail dans le conteneur WAF |
-| **Ansible** | [Module raw](https://docs.ansible.com/ansible/latest/collections/ansible/builtin/raw_module.html) | Bootstrap Python sur les conteneurs cibles (contournement : pas de Python natif) |
-| **Ansible** | [Ansible Vault](https://docs.ansible.com/ansible/latest/vault_guide/index.html) | Chiffrement des mots de passe MySQL et Grafana dans vault.yml |
-| **Ansible** | [Connexion Docker](https://docs.ansible.com/ansible/latest/collections/community/docker/docker_connection.html) | Connexion directe aux conteneurs via le socket Docker (pas de SSH) |
+| **Terraform** | [Provider Docker (kreuzwerker)](https://registry.terraform.io/providers/kreuzwerker/docker/latest/docs) | Provisioning 5 containers, Docker network, named volumes |
+| **Terraform** | [docker_container resource](https://registry.terraform.io/providers/kreuzwerker/docker/latest/docs/resources/container) | Container configuration: ports, env vars, volumes |
+| **Terraform** | [docker_network resource](https://registry.terraform.io/providers/kreuzwerker/docker/latest/docs/resources/network) | Isolated devsecops-net network for container isolation |
+| **Terraform** | [docker_volume resource](https://registry.terraform.io/providers/kreuzwerker/docker/latest/docs/resources/volume) | Named waf-logs volume to work around bind mount permission issues (ISSUES.md #1) |
+| **Ansible** | [lineinfile module](https://docs.ansible.com/ansible/latest/collections/ansible/builtin/lineinfile_module.html) | Modification of Nginx, ModSecurity and MySQL config files |
+| **Ansible** | [community.mysql module](https://docs.ansible.com/ansible/latest/collections/community/mysql/index.html) | Execution of MySQL hardening queries |
+| **Ansible** | [get_url module](https://docs.ansible.com/ansible/latest/collections/ansible/builtin/get_url_module.html) | Download Promtail binary to WAF container |
+| **Ansible** | [raw module](https://docs.ansible.com/ansible/latest/collections/ansible/builtin/raw_module.html) | Bootstrap Python on target containers (workaround: no native Python) |
+| **Ansible** | [Ansible Vault](https://docs.ansible.com/ansible/latest/vault_guide/index.html) | Encryption of MySQL and Grafana passwords in vault.yml |
+| **Ansible** | [Docker Connection](https://docs.ansible.com/ansible/latest/collections/community/docker/docker_connection.html) | Direct connection to containers via Docker socket (no SSH) |
 
 ---
 
@@ -59,22 +79,22 @@ Documentations techniques utilisées pour le développement et le débogage :
 
 | Ressource | Description |
 |-----------|-------------|
-| [OWASP Top 10 2025](https://owasp.org/Top10/2025/) — Page officielle | Référentiel des 10 risques de sécurité web les plus critiques (version 2025 en vigueur) |
-| [OWASP ModSecurity CRS GitHub](https://github.com/coreruleset/coreruleset) | Code source et documentation des règles OWASP CRS |
-| [ModSecurity Reference Manual](https://github.com/owasp-modsecurity/ModSecurity/wiki/Reference-Manual) | Guide complet des directives ModSecurity (SecRuleEngine, SecDefaultAction, SecRule, etc.) |
-| [ModSecurity-nginx Connector](https://github.com/owasp-modsecurity/ModSecurity-nginx) | Module de liaison entre Nginx et ModSecurity |
-| [OWASP CRS Documentation](https://coreruleset.org/docs/) | Documentation officielle : tuning, faux positifs, déploiement |
-| [OWASP CRS - Admin Guide](https://coreruleset.org/docs/admin/) | Guide d'administration : installation avancée, désactivation de règles, scoring |
-| [Nginx ngx_http_modsecurity_module](https://nginx.org/en/docs/http/ngx_http_modsecurity_module.html) | Documentation Nginx pour l'activation de ModSecurity |
-| [CIS Benchmarks](https://www.cisecurity.org/benchmark/nginx) | Benchmark CIS pour Nginx (bonnes pratiques de configuration sécurisée) |
-| [Mozilla Observatory](https://observatory.mozilla.org/) | Outil d'analyse des en-têtes de sécurité HTTP |
+| [OWASP Top 10 2025](https://owasp.org/Top10/2025/) — Official page | Repository of the 10 most critical web security risks (2025 version in effect) |
+| [OWASP ModSecurity CRS GitHub](https://github.com/coreruleset/coreruleset) | Source code and documentation of OWASP CRS rules |
+| [ModSecurity Reference Manual](https://github.com/owasp-modsecurity/ModSecurity/wiki/Reference-Manual) | Comprehensive guide to ModSecurity directives (SecRuleEngine, SecDefaultAction, SecRule, etc.) |
+| [ModSecurity-nginx Connector](https://github.com/owasp-modsecurity/ModSecurity-nginx) | Linking module between Nginx and ModSecurity |
+| [OWASP CRS Documentation](https://coreruleset.org/docs/) | Official documentation: tuning, false positives, deployment |
+| [OWASP CRS - Admin Guide](https://coreruleset.org/docs/admin/) | Administration guide: advanced installation, rule disabling, scoring |
+| [Nginx ngx_http_modsecurity_module](https://nginx.org/en/docs/http/ngx_http_modsecurity_module.html) | Nginx documentation for ModSecurity activation |
+| [CIS Benchmarks](https://www.cisecurity.org/benchmark/nginx) | CIS Benchmark for Nginx (secure configuration best practices) |
+| [Mozilla Observatory](https://observatory.mozilla.org/) | Tool for analyzing HTTP security headers |
 
-### 🔑 Concepts clés appliqués dans ce projet
+### 🔑 Key Concepts Applied in This Project
 
-- **SecRuleEngine** : `DetectionOnly` (détection seule) vs `On` (blocage actif) — voir ISSUES.md #12 pour l'impact de cette distinction
-- **SecDefaultAction** : Action par défaut (`pass`, `deny`, `status:403`) quand une règle CRS est déclenchée — paramètre critique pour passer du mode détection au mode prévention
-- **Anomaly Scoring** : Le CRS utilise un système de score cumulatif (inbound/outbound) plutôt qu'un blocage immédiat — plus flexible mais nécessite une configuration explicite du seuil de blocage
-- **Paranoia Level** : Le CRS définit 4 niveaux de paranoïa (PL1 à PL4). PL1 est le défaut (équilibre sécurité/faux positifs), PL4 est extrême.
+- **SecRuleEngine**: `DetectionOnly` (detection only) vs `On` (active blocking) — see ISSUES.md #12 for the impact of this distinction
+- **SecDefaultAction**: Default action (`pass`, `deny`, `status:403`) when a CRS rule is triggered — critical parameter to transition from detection to prevention mode
+- **Anomaly Scoring**: The CRS uses a cumulative scoring system (inbound/outbound) rather than immediate blocking — more flexible but requires explicit threshold configuration
+- **Paranoia Level**: The CRS defines 4 paranoia levels (PL1 to PL4). PL1 is default (security/false positive balance), PL4 is extreme.
 
 ---
 
@@ -82,16 +102,16 @@ Documentations techniques utilisées pour le développement et le débogage :
 
 | Ressource | Description |
 |-----------|-------------|
-| [Podman Rootless Guide](https://github.com/containers/podman/blob/main/docs/tutorials/rootless_tutorial.md) | Guide Podman en mode rootless (utilisé dans ce projet) |
-| [Podman Socket Activation](https://www.redhat.com/sysadmin/podman-rootless-systemd) | Activation du socket Podman pour l'accès via Terraform |
-| [Docker Volumes vs Bind Mounts](https://docs.docker.com/storage/volumes/) | Documentation officielle sur les différences volumes/bind mounts (voir ISSUES.md #1) |
-| [owasp/modsecurity-crs Docker Image](https://hub.docker.com/r/owasp/modsecurity-crs) | Image officielle OWASP CRS avec Nginx — point d'entrée et variables d'environnement documentées |
-| [Image CRS - Variables d'environnement](https://github.com/coreruleset/modsecurity-crs-docker?tab=readme-ov-file#environment-variables) | Liste complète des variables `MODSEC_*`, `BACKEND`, `PARANOIA` configurables |
-| [Podman Secrets](https://docs.podman.io/en/latest/markdown/podman-secret.1.html) | Mécanisme natif Podman pour gérer les secrets sans exposer via `podman inspect` (voir ISSUES.md #10) |
+| [Podman Rootless Guide](https://github.com/containers/podman/blob/main/docs/tutorials/rootless_tutorial.md) | Podman rootless mode guide (used in this project) |
+| [Podman Socket Activation](https://www.redhat.com/sysadmin/podman-rootless-systemd) | Activating Podman socket for Terraform access |
+| [Docker Volumes vs Bind Mounts](https://docs.docker.com/storage/volumes/) | Official documentation on volume/bind mount differences (see ISSUES.md #1) |
+| [owasp/modsecurity-crs Docker Image](https://hub.docker.com/r/owasp/modsecurity-crs) | Official OWASP CRS image with Nginx — entrypoint and environment variables documented |
+| [Image CRS - Environment Variables](https://github.com/coreruleset/modsecurity-crs-docker?tab=readme-ov-file#environment-variables) | Complete list of configurable `MODSEC_*`, `BACKEND`, `PARANOIA` variables |
+| [Podman Secrets](https://docs.podman.io/en/latest/markdown/podman-secret.1.html) | Native Podman mechanism to manage secrets without exposing via `podman inspect` (see ISSUES.md #10) |
 
-### Problème Podman rootless rencontré
+### Podman Rootless Issue Encountered
 
-Le provisioning automatique Grafana (montage de dossiers locaux) ne fonctionne pas avec Podman rootless — voir ISSUES.md #11. La solution de contournement est la configuration manuelle des datasources. Pour un environnement de production, l'utilisation de Docker en mode root ou un custom Dockerfile avec les bons permissions serait recommandé.
+Automatic Grafana provisioning (mounting local folders) doesn't work with Podman rootless — see ISSUES.md #11. The workaround is manual datasource configuration. For a production environment, using Docker in root mode or a custom Dockerfile with proper permissions would be recommended.
 
 ---
 
@@ -110,13 +130,13 @@ Le provisioning automatique Grafana (montage de dossiers locaux) ne fonctionne p
 
 | Ressource | Description |
 |-----------|-------------|
-| [Ansible Docker Connection Plugin](https://docs.ansible.com/ansible/latest/collections/community/docker/docker_connection.html) | Connexion directe aux conteneurs Docker (pas de SSH) — utilisé dans inventory.ini |
-| [Ansible Best Practices](https://docs.ansible.com/ansible/latest/tips_tricks/ansible_tips_tricks.html) | Structure de projet, organisation des rôles et playbooks |
-| [Ansible Vault Guide](https://docs.ansible.com/ansible/latest/vault_guide/index.html) | Chiffrement des variables sensibles avec ansible-vault |
-| [Ansible lineinfile](https://docs.ansible.com/ansible/latest/collections/ansible/builtin/lineinfile_module.html) | Modification de lignes dans les fichiers de configuration |
-| [Ansible MySQL modules](https://docs.ansible.com/ansible/latest/collections/community/mysql/index.html) | Module `mysql_user`, `mysql_db`, `mysql_query` pour le hardening MySQL |
-| [Ansible raw module](https://docs.ansible.com/ansible/latest/collections/ansible/builtin/raw_module.html) | Exécution de commandes brutes sans dépendance Python (bootstrap) |
-| [Ansible Jinja2 templating](https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_templating.html) | Utilisation de templates et variables dans les playbooks |
+| [Ansible Docker Connection Plugin](https://docs.ansible.com/ansible/latest/collections/community/docker/docker_connection.html) | Direct connection to Docker containers (no SSH) — used in inventory.ini |
+| [Ansible Best Practices](https://docs.ansible.com/ansible/latest/tips_tricks/ansible_tips_tricks.html) | Project structure, role and playbook organization |
+| [Ansible Vault Guide](https://docs.ansible.com/ansible/latest/vault_guide/index.html) | Encryption of sensitive variables with ansible-vault |
+| [Ansible lineinfile](https://docs.ansible.com/ansible/latest/collections/ansible/builtin/lineinfile_module.html) | Modification of lines in configuration files |
+| [Ansible MySQL modules](https://docs.ansible.com/ansible/latest/collections/community/mysql/index.html) | `mysql_user`, `mysql_db`, `mysql_query` modules for MySQL hardening |
+| [Ansible raw module](https://docs.ansible.com/ansible/latest/collections/ansible/builtin/raw_module.html) | Execution of raw commands without Python dependency (bootstrap) |
+| [Ansible Jinja2 templating](https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_templating.html) | Using templates and variables in playbooks |
 
 ---
 
@@ -124,13 +144,13 @@ Le provisioning automatique Grafana (montage de dossiers locaux) ne fonctionne p
 
 | Ressource | Description |
 |-----------|-------------|
-| [Grafana Loki Documentation](https://grafana.com/docs/loki/latest/) | Documentation complète de Loki : architecture, configuration, LogQL |
-| [LogQL Reference](https://grafana.com/docs/loki/latest/logql/) | Langage de requête LogQL : filtres, agrégations, transformations |
-| [LogQL Sample Queries](https://grafana.com/docs/loki/latest/query/sample_queries/) | Exemples concrets de requêtes LogQL utilisées dans les dashboards |
-| [Promtail Configuration](https://grafana.com/docs/loki/latest/send-data/promtail/configuration/) | Fichier de configuration Promtail : scrape_configs, labels, pipeline |
-| [Grafana Dashboard JSON](https://grafana.com/docs/grafana/latest/dashboards/build-dashboards/manage-version/) | Structure du JSON de dashboard Grafana pour l'IaC |
-| [Grafana Provisioning](https://grafana.com/docs/grafana/latest/administration/provisioning/) | Provisioning automatique des datasources et dashboards |
-| [Loki API](https://grafana.com/docs/loki/latest/reference/api/) | API REST de Loki pour les requêtes HTTP directes |
+| [Grafana Loki Documentation](https://grafana.com/docs/loki/latest/) | Complete Loki documentation: architecture, configuration, LogQL |
+| [LogQL Reference](https://grafana.com/docs/loki/latest/logql/) | LogQL query language: filters, aggregations, transformations |
+| [LogQL Sample Queries](https://grafana.com/docs/loki/latest/query/sample_queries/) | Concrete examples of LogQL queries used in dashboards |
+| [Promtail Configuration](https://grafana.com/docs/loki/latest/send-data/promtail/configuration/) | Promtail config file: scrape_configs, labels, pipeline |
+| [Grafana Dashboard JSON](https://grafana.com/docs/grafana/latest/dashboards/build-dashboards/manage-version/) | Grafana dashboard JSON structure for IaC |
+| [Grafana Provisioning](https://grafana.com/docs/grafana/latest/administration/provisioning/) | Automatic provisioning of datasources and dashboards |
+| [Loki API](https://grafana.com/docs/loki/latest/reference/api/) | Loki REST API for direct HTTP queries |
 
 ### Requêtes LogQL utilisées
 

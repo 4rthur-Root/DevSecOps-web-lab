@@ -1,14 +1,13 @@
-# Variables non-sensibles
+# Non-sensitive variables
 mysql_database: juiceshop
 waf_container_name: waf
 loki_url: http://loki:3100
 
-# Variables sensibles ( mysql surtout )
+# Sensitive variables (mysql especially)
 mysql_root_password: "{{ vault_mysql_root_password }}"
-app_password: "{{ vault_app_password }}" # Mot de passe pour l'utilisateur applicatif 
-# Si non défini, un mot de passe par défaut sera utilisé
+app_password: "{{ vault_app_password }}" # Password for application user
+# If not defined, a default password will be used
 
-
-# Variables applicatives pour le durcissement
-app_user: "oracle_user"          # L'utilisateur qui va utiliser la base de données
-app_database: "{{ mysql_database }}" # Utilise la variable existante
+# Application variables for hardening
+app_user: "oracle_user"          # User who will use the database
+app_database: "{{ mysql_database }}" # Uses existing variable

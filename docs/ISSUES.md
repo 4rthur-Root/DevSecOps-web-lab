@@ -1,31 +1,31 @@
-# Problèmes Rencontrés & Résolutions (Troubleshooting)
+# Encountered Problems & Resolutions (Troubleshooting)
 
-Ce document retrace les erreurs majeures rencontrées durant le déploiement et détaille la démarche de résolution (Root Cause Analysis). 
+This document traces the major errors encountered during deployment and details the resolution approach (Root Cause Analysis).
 
 ---
 
-## 1. WAF : Nginx "Permission denied" sur les logs
+## 1. WAF: Nginx "Permission denied" on logs
 
-### Le problème exact
-Lors du déploiement initial via Terraform, le conteneur WAF (`owasp/modsecurity-crs:nginx`) refusait de démarrer ou redémarrait en boucle.
-L'analyse des logs du conteneur (`podman logs waf`) affichait l'erreur critique suivante :
+### The exact problem
+During initial deployment via Terraform, the WAF container (`owasp/modsecurity-crs:nginx`) refused to start or was restarting in loops.
+Analysis of container logs (`podman logs waf`) displayed the following critical error:
 `nginx: [emerg] 1#1: open() "/var/log/nginx/access.log" failed (13: Permission denied)`
 
-### Comment le problème a été identifié
-L'erreur `Permission denied` sur un fichier de log est le symptôme absolu d'un conflit de droits entre le système de fichiers de l'hôte Linux et l'utilisateur interne du conteneur.
-En analysant le code `main.tf`, nous avions utilisé un **Bind Mount** (montage direct d'un dossier de l'hôte) :
+### How the problem was identified
+The `Permission denied` error on a log file is the absolute symptom of a permissions conflict between the host Linux filesystem and the internal container user.
+Analyzing the `main.tf` code, we had used a **Bind Mount** (direct mounting of a host folder):
 ```hcl
   volumes {
     host_path      = abspath("${path.module}/../logs/waf")
     container_path = "/var/log/nginx"
   }
 ```
-L'image officielle ModSecurity CRS applique les bonnes pratiques de sécurité : elle exécute le processus Nginx avec un utilisateur non privilégié (l'utilisateur `nginx`, UID 101) au lieu de l'utilisateur `root`.
-Cependant, le dossier local `../logs/waf` sur la machine hôte était la propriété de l'utilisateur courant (UID 1000). Lorsque Nginx (UID 101) a tenté d'écrire dedans, le système de fichiers Linux a bloqué l'action.
+The official ModSecurity CRS image applies security best practices: it runs the Nginx process with an unprivileged user (the `nginx` user, UID 101) instead of the `root` user.
+However, the local folder `../logs/waf` on the host machine was owned by the current user (UID 1000). When Nginx (UID 101) tried to write to it, the Linux filesystem blocked the action.
 
-### La Solution
-Nous avons remplacé le *Bind Mount* par un **Volume Docker nommé**.
-Dans Terraform, nous avons déclaré la ressource `docker_volume` et modifié le bloc `volumes` du conteneur :
+### The Solution
+We replaced the *Bind Mount* with a **Named Docker Volume**.
+In Terraform, we declared the `docker_volume` resource and modified the container's `volumes` block:
 ```hcl
 resource "docker_volume" "waf_logs" {
   name = "waf-logs"
@@ -37,35 +37,35 @@ resource "docker_volume" "waf_logs" {
   }
 ```
 
-### Pourquoi cette solution et ce qu'il faut en retenir
-Un Volume Nommé est géré intégralement par le démon Docker/Podman, stocké dans un espace système dédié (souvent dans `/var/lib/docker/volumes` ou équivalent Podman). Lors de l'initialisation du conteneur, le moteur ajuste automatiquement les permissions pour s'assurer que l'utilisateur interne puisse y écrire. C'est l'approche "DevOps" de référence pour persister des données sans se heurter aux problèmes de droits liés à l'hôte.
+### Why this solution and what to remember
+A Named Volume is managed entirely by the Docker/Podman daemon, stored in a dedicated system space (often in `/var/lib/docker/volumes` or equivalent Podman). When initializing the container, the engine automatically adjusts permissions to ensure the internal user can write to it. This is the "DevOps" reference approach for persisting data without running into host-related permission issues.
 
-### Et avec Docker natif ?
-Si nous avions utilisé Docker (en mode daemon root) au lieu de Podman, **le problème aurait été similaire, bien que parfois masqué**.
-Sur un système purement Linux, l'erreur aurait été exactement la même car l'UID 101 reste l'UID 101. En revanche, si on avait utilisé Docker Desktop (sous Windows ou macOS), la machine virtuelle intermédiaire (WSL2 ou HyperKit) ajuste souvent dynamiquement les permissions des *Bind Mounts* à la volée. Cela pardonne les erreurs et donne une fausse sensation de sécurité, mais le code échouerait brutalement une fois déployé sur un vrai serveur Linux de production ! Le fait d'être sous Linux/Podman t'a forcé à adopter la solution robuste dès le premier jour.
+### With native Docker?
+If we had used Docker (in root daemon mode) instead of Podman, **the problem would have been similar, though sometimes masked**.
+On a purely Linux system, the error would have been exactly the same because UID 101 remains UID 101. However, if we had used Docker Desktop (on Windows or macOS), the intermediate VM (WSL2 or HyperKit) often dynamically adjusts Bind Mount permissions on the fly. This hides errors and gives a false sense of security, but the code would fail brutally once deployed on a real production Linux server! Being on Linux/Podman forced you to adopt the robust solution from day one.
 
 ---
 
-## 2. WAF : Connection reset by peer (Erreur 56 curl)
+## 2. WAF: Connection reset by peer (curl Error 56)
 
-### Le problème exact
-Une fois le problème de permissions résolu, le WAF était bien au statut `Up`. Toutefois, toute tentative de s'y connecter (`curl -s -i http://localhost:8080`) échouait avec une erreur réseau :
+### The exact problem
+Once the permissions problem was resolved, the WAF was in `Up` status. However, any attempt to connect to it (`curl -s -i http://localhost:8080`) failed with a network error:
 `curl: (56) Recv failure: Connection reset by peer`
 
-### Comment le problème a été identifié
-Un *Connection Reset* (paquet TCP RST) provenant de l'hôte local vers un conteneur signifie que le moteur Docker a bien intercepté le trafic entrant sur le port exposé, l'a transféré à l'intérieur du réseau du conteneur, mais qu'**aucun processus applicatif n'écoutait de l'autre côté**. Le système d'exploitation du conteneur ferme alors violemment la connexion.
-L'analyse du `main.tf` a révélé le problème dans le mappage de ports :
+### How the problem was identified
+A *Connection Reset* (TCP RST packet) from localhost to a container means that the Docker engine properly intercepted the incoming traffic on the exposed port, transferred it inside the container network, but **no application process was listening on the other side**. The container's operating system then forcefully closes the connection.
+Analysis of `main.tf` revealed the problem in the port mapping:
 ```hcl
   ports {
     internal = 80
     external = 8080
   }
 ```
-Souviens-toi de notre analyse précédente : l'image s'exécute avec un utilisateur non-root. Sous Linux, un utilisateur non-root ne peut pas ouvrir de port inférieur à 1024 (il n'a pas la capability `CAP_NET_BIND_SERVICE`). Les développeurs de l'image CRS ont donc configuré Nginx pour écouter par défaut sur le port HTTP **8080** en interne, et non 80.
-Notre trafic externe arrivait donc sur le port interne 80, qui était désert !
+Remember from our earlier analysis: the image runs with a non-root user. On Linux, a non-root user cannot open ports below 1024 (it lacks the `CAP_NET_BIND_SERVICE` capability). The CRS image developers therefore configured Nginx to listen by default on HTTP port **8080** internally, not 80.
+Our external traffic was arriving on internal port 80, which was empty!
 
-### La Solution
-Nous avons corrigé le mappage pour s'aligner sur la configuration interne de l'image CRS :
+### The Solution
+We corrected the mapping to align with the internal configuration of the CRS image:
 ```hcl
   ports {
     internal = 8080
@@ -73,124 +73,121 @@ Nous avons corrigé le mappage pour s'aligner sur la configuration interne de l'
   }
 ```
 
-### Pourquoi cette solution et ce qu'il faut en retenir
-Il est primordial de toujours faire la distinction entre le port **externe** (celui exposé au monde / à ton navigateur) et le port **interne** (celui défini dans le `Dockerfile` de l'image via l'instruction `EXPOSE` ou la configuration logicielle).
-Règle d'or en sécurité : les conteneurs "Hardened" ou "Rootless" utiliseront systématiquement des ports élevés (8080, 8443) pour contourner la restriction des ports privilégiés.
+### Why this solution and what to remember
+It is essential to always distinguish between the **external** port (the one exposed to the world / your browser) and the **internal** port (the one defined in the image's `Dockerfile` via the `EXPOSE` instruction or software configuration).
+Golden rule in security: "Hardened" or "Rootless" containers will systematically use high ports (8080, 8443) to bypass privileged port restrictions.
 
-### Et avec Docker natif ?
-Le comportement aurait été **strictement identique** avec n'importe quelle version de Docker. Le transfert de port est une mécanique réseau universelle des conteneurs. Si on redirige du trafic vers un port où rien ne tourne, un `Connection reset` est le comportement standard d'une pile TCP/IP saine.
+### With native Docker?
+The behavior would have been **strictly identical** with any version of Docker. Port forwarding is a universal container networking mechanism. If you redirect traffic to a port where nothing is running, a `Connection reset` is the standard behavior of a healthy TCP/IP stack.
 
-
-### État final après résolution
-- Volume nommé `waf-logs` géré par Podman
-- Port mapping corrigé : `internal = 8080, external = 8080`
-- Validation : `curl -s http://localhost:8080 | grep -i "juice"` ✅
-- `podman ps` : 5 containers Up ✅
-
-
+### Final state after resolution
+- Named volume `waf-logs` managed by Podman
+- Corrected port mapping: `internal = 8080, external = 8080`
+- Validation: `curl -s http://localhost:8080 | grep -i "juice"` ✅
+- `podman ps`: 5 containers Up ✅
 
 ![Running Containers](./evidences/Containers.png)
 
 ---
 
-## 3. Ansible : Impossible de se connecter et d'exécuter des modules sur les conteneurs
+## 3. Ansible: Unable to connect and execute modules on containers
 
-### Le problème exact
-Lors des premiers tests de connexion d'Ansible vers les conteneurs cibles (`ansible all -m ping`), deux erreurs majeures sont apparues :
-1. Sur le WAF (`owasp/modsecurity-crs:nginx`) : `Failed to create temporary directory [...] echo /nonexistent/.ansible/tmp`
-2. Sur MySQL et WAF : `The module interpreter '/usr/bin/python3' was not found`
+### The exact problem
+During the first connection tests from Ansible to target containers (`ansible all -m ping`), two major errors appeared:
+1. On the WAF (`owasp/modsecurity-crs:nginx`): `Failed to create temporary directory [...] echo /nonexistent/.ansible/tmp`
+2. On MySQL and WAF: `The module interpreter '/usr/bin/python3' was not found`
 
-### Comment le problème a été identifié
-- **Pour le répertoire temporaire (WAF)** : Par défaut, l'utilisateur `nginx` exécutant le conteneur n'a pas de véritable répertoire personnel (`/nonexistent`). Lorsque Ansible tente de créer son dossier de travail temporaire `~/.ansible/tmp`, le système refuse l'accès.
-- **Pour l'interpréteur Python (WAF & MySQL)** : Ansible repose intrinsèquement sur l'envoi et l'exécution de scripts Python sur les machines cibles pour faire fonctionner ses modules standards (`ping`, `copy`, `mysql_db`, etc.). Or, les images Docker officielles telles que `mysql:8.0` et `owasp/modsecurity-crs:nginx` sont volontairement allégées pour des raisons de sécurité (réduction de la surface d'attaque) et ne contiennent donc pas Python par défaut.
+### How the problem was identified
+- **For the temporary directory (WAF)**: By default, the `nginx` user running the container has no real home directory (`/nonexistent`). When Ansible tries to create its temporary working folder `~/.ansible/tmp`, the system denies access.
+- **For the Python interpreter (WAF & MySQL)**: Ansible intrinsically relies on sending and executing Python scripts on target machines to run its standard modules (`ping`, `copy`, `mysql_db`, etc.). However, official Docker images such as `mysql:8.0` and `owasp/modsecurity-crs:nginx` are intentionally lightweight for security reasons (reducing attack surface) and therefore don't include Python by default.
 
-### Les Solutions Déployées
+### Solutions Deployed
 
-#### 1. Correction du répertoire temporaire
-Nous avons instruit Ansible d'utiliser le répertoire temporaire global `/tmp` (qui est accessible en écriture par tous) au lieu du répertoire personnel de l'utilisateur.
-- **Action** : Ajout de la variable `remote_tmp = /tmp` dans la section `[defaults]` du fichier `ansible.cfg`.
+#### 1. Temporary directory correction
+We instructed Ansible to use the global `/tmp` temporary directory (which is writable by everyone) instead of the user's home directory.
+- **Action**: Added the `remote_tmp = /tmp` variable in the `[defaults]` section of the `ansible.cfg` file.
 
-#### 2. Installation de Python via le module `raw` (Bootstrap)
-Pour installer Python sans utiliser les modules nécessitant... Python (comme le module `apt`), nous avons rédigé un playbook "Bootstrap" (`setup-python.yml`).
-- Ce playbook désactive la collecte initiale de variables (`gather_facts: no`).
-- Il utilise le seul module natif qui ne nécessite pas Python sur la cible : le module `raw`. Ce module envoie des commandes Bash brutes via le connecteur Docker.
-- **Action** : Installation de `python3` via `apt-get` (sur le WAF basé Debian) et via `microdnf` (sur la BDD basée Oracle Linux), en forçant la connexion sous l'utilisateur root (`ansible_user=root` dans l'inventaire).
+#### 2. Python installation via `raw` module (Bootstrap)
+To install Python without using modules requiring... Python (like the `apt` module), we wrote a "Bootstrap" playbook (`setup-python.yml`).
+- This playbook disables initial variable collection (`gather_facts: no`).
+- It uses the only native module that doesn't require Python on the target: the `raw` module. This module sends raw Bash commands via the Docker connector.
+- **Action**: Installation of `python3` via `apt-get` (on the Debian-based WAF) and via `microdnf` (on the Oracle Linux-based DB), forcing connection under the root user (`ansible_user=root` in the inventory).
 
-### Autres approches envisageables (Architecturales)
-L'approche de bootstrap via `raw` est pratique, mais dans une approche GitOps/DevSecOps stricte, d'autres alternatives existent :
-- **L'approche "Custom Dockerfile" (La plus recommandée en production)** : Au lieu de tirer les images brutes dans `main.tf`, nous aurions pu créer un `Dockerfile` qui hérite des images officielles et ajoute l'instruction `RUN apt-get update && apt-get install -y python3`. Terraform aurait alors provisionné ces nouvelles images "Ansible-Ready". (Note : cela aurait nécessité un `terraform apply` pour détruire et recréer les conteneurs).
-- **L'approche "Local Connection"** : Utiliser la connexion `local` dans Ansible avec le module `community.docker.docker_container_exec` pour exécuter des commandes depuis la machine hôte vers les conteneurs, évitant ainsi le besoin de Python à l'intérieur. Mais cela s'éloigne de l'expérience classique d'Ansible.
+### Alternative approaches (Architectural)
+The bootstrap via `raw` approach is practical, but in a strict GitOps/DevSecOps approach, other alternatives exist:
+- **The "Custom Dockerfile" approach (Most recommended in production)**: Instead of pulling raw images in `main.tf`, we could have created a `Dockerfile` inheriting from official images and adding the `RUN apt-get update && apt-get install -y python3` instruction. Terraform would have then provisioned these new "Ansible-Ready" images. (Note: this would have required a `terraform apply` to destroy and recreate containers).
+- **The "Local Connection" approach**: Use the `local` connection in Ansible with the `community.docker.docker_container_exec` module to execute commands from the host machine to containers, avoiding the need for Python inside. But this diverges from the classic Ansible experience.
 
-### Ce qu'il faut en retenir
-Une architecture 100% conteneurisée révèle rapidement les prérequis cachés des outils de Configuration Management. Ansible n'est pas "magique" : il a besoin d'un environnement d'exécution (Python) sur ses cibles. Comprendre la différence entre un système Linux complet (VM) et un conteneur allégé est essentiel pour tout ingénieur DevOps/SecOps.
+### What to remember
+A 100% containerized architecture quickly reveals hidden prerequisites of Configuration Management tools. Ansible is not "magic": it needs a runtime environment (Python) on its targets. Understanding the difference between a complete Linux system (VM) and a lightweight container is essential for any DevOps/SecOps engineer.
 
-![Pings réussis](./evidences/ping-reussi.png)
+![Successful pings](./evidences/ping-reussi.png)
 
-## 4. WAF | Playbook : Erreur de syntaxe Nginx dans `nginx.conf` — `invalid number of arguments in proxy_pass`
+## 4. WAF | Playbook: Nginx syntax error in `nginx.conf` — `invalid number of arguments in proxy_pass`
 
-### Le problème exact
-Après le premier `ansible-playbook waf-setup.yml`, le handler `Recharger Nginx` déclenchait une erreur fatale empêchant la config d'être prise en compte :
+### The exact problem
+After the first `ansible-playbook waf-setup.yml`, the `Reload Nginx` handler triggered a fatal error preventing the config from being applied:
 ```
 nginx: [emerg] invalid number of arguments in "proxy_pass" directive in /etc/nginx/conf.d/default.conf:25
 ```
 
-### Comment le problème a été identifié
-La commande `nginx -T` (test de configuration) a permis d'isoler la ligne en cause. En l'inspectant dans `ansible/files/waf/nginx.conf`, la directive `proxy_pass` contenait un backslash parasite avant le point-virgule de fin de ligne :
+### How the problem was identified
+The `nginx -T` command (config test) allowed isolating the problematic line. Inspecting it in `ansible/files/waf/nginx.conf`, the `proxy_pass` directive contained a stray backslash before the end-of-line semicolon:
 ```nginx
-# FAUX (généré par l'éditeur de texte)
+# WRONG (generated by text editor)
 proxy_pass http://juiceshop:3000\;
 
 # CORRECT
 proxy_pass http://juiceshop:3000;
 ```
-Le backslash `\` est un caractère d'échappement valide dans certains langages (shell, Python), mais **il n'a aucune signification en syntaxe Nginx** et est donc traité comme un caractère illégitime supplémentaire, transformant la directive en une instruction avec "trop d'arguments".
+The backslash `\` is a valid escape character in some languages (shell, Python), but **it has no meaning in Nginx syntax** and is therefore treated as an illegitimate additional character, transforming the directive into an instruction with "too many arguments".
 
-### La Solution
-Suppression du backslash parasite dans `ansible/files/waf/nginx.conf`.
+### The Solution
+Removal of the stray backslash in `ansible/files/waf/nginx.conf`.
 
-### Ce qu'il faut en retenir
-En Nginx, le point-virgule `;` est le terminateur de directive. Il ne doit jamais être échappé. Ce type de bug est classique lors d'une écriture de config dans un éditeur de code qui confond les contextes de langage.
+### What to remember
+In Nginx, the semicolon `;` is the directive terminator. It should never be escaped. This type of bug is classic when writing config in a code editor that confuses language contexts.
 
 ---
 
-## 5. WAF | Playbook : Variable Nginx `$modsec_inbound_anomaly_score` inconnue
+## 5. WAF | Playbook: Unknown Nginx variable `$modsec_inbound_anomaly_score`
 
-### Le problème exact
-Même après correction de la syntaxe `proxy_pass`, le reload Nginx échouait avec :
+### The exact problem
+Even after fixing the `proxy_pass` syntax, Nginx reload failed with:
 ```
 nginx: [emerg] unknown "modsec_inbound_anomaly_score" variable
 ```
 
-### Comment le problème a été identifié
-Le `log_format` JSON défini dans `nginx.conf` référençait deux variables ModSecurity : `$modsec_inbound_anomaly_score` et `$matched_var`. Ces variables sont injectées dans Nginx via le module dynamique `ngx_http_modsecurity_module`. Lorsque ce module n'est pas chargé **avant** l'évaluation du bloc `http`, ou que les variables n'ont pas encore été déclarées, Nginx refuse de démarrer.
-L'image `owasp/modsecurity-crs:nginx` charge bien ModSecurity, mais le connecteur ne garantit pas l'exposition de toutes les variables internes de ModSecurity dans l'espace de variables Nginx standard.
+### How the problem was identified
+The JSON `log_format` defined in `nginx.conf` referenced two ModSecurity variables: `$modsec_inbound_anomaly_score` and `$matched_var`. These variables are injected into Nginx via the `ngx_http_modsecurity_module` dynamic module. When this module is not loaded **before** the `http` block evaluation, or if the variables haven't been declared yet, Nginx refuses to start.
+The `owasp/modsecurity-crs:nginx` image does load ModSecurity, but the connector doesn't guarantee the exposure of all internal ModSecurity variables to the standard Nginx variable namespace.
 
-### La Solution
-Suppression des deux variables problématiques du `log_format` dans `nginx.conf`. Le log JSON conserve les champs essentiels pour l'analyse Grafana/Loki :
+### The Solution
+Removal of the two problematic variables from the `log_format` in `nginx.conf`. The JSON log retains the essential fields for Grafana/Loki analysis:
 - `time`, `remote_addr`, `method`, `uri`, `status`, `body_bytes`, `http_referer`, `http_user_agent`
 
-### Ce qu'il faut en retenir
-Pour enrichir les logs avec le score ModSecurity (une vraie valeur ajoutée pour un dashboard SOC), il faut utiliser le **log d'audit ModSecurity** (`/var/log/modsec_audit.log`), qui est un fichier séparé géré par le moteur ModSecurity lui-même. On pourra configurer Promtail pour l'aspirer en Phase 3.
+### What to remember
+To enrich logs with the ModSecurity score (a real value addition for an SOC dashboard), you must use the **ModSecurity audit log** (`/var/log/modsec_audit.log`), which is a separate file managed by the ModSecurity engine itself. Promtail can be configured to scrape it in Phase 3.
 
 ---
 
-## 6. WAF | Playbook : `pkill`, `ps`, `pgrep` introuvables dans l'image
+## 6. WAF | Playbook: `pkill`, `ps`, `pgrep` not found in image
 
-### Le problème exact
-Toutes les commandes d'inspection ou d'arrêt de processus échouaient dans le conteneur WAF :
+### The exact problem
+All process inspection or termination commands failed in the WAF container:
 ```
 Error: crun: executable file `pgrep` not found in $PATH: No such file or directory
 Error: crun: executable file `ps` not found in $PATH: No such file or directory
 ```
-Concrètement, la tâche Ansible `pkill promtail || true` aurait silencieusement échoué sur le `pkill` sans le `|| true`, et les vérifications manuelles étaient impossibles.
+Concretely, the Ansible task `pkill promtail || true` would have silently failed on `pkill` without the `|| true`, and manual verifications were impossible.
 
-### Comment le problème a été identifié
-L'image Debian minimale (`owasp/modsecurity-crs:nginx`) n'installe que le strict nécessaire pour faire tourner Nginx. Les utilitaires `ps`, `pgrep` et `pkill` font partie du paquet `procps` qui n'est pas inclus.
+### How the problem was identified
+The minimal Debian image (`owasp/modsecurity-crs:nginx`) installs only what's strictly necessary to run Nginx. The utilities `ps`, `pgrep` and `pkill` are part of the `procps` package which is not included.
 
-### La Solution
-Ajout du paquet `procps` dans la liste des dépendances installées par le playbook `waf-setup.yml`, en parallèle de `unzip` :
+### The Solution
+Added the `procps` package to the list of dependencies installed by the `waf-setup.yml` playbook, alongside `unzip`:
 ```yaml
-- name: Télécharger "unzip" et "procps" (pour pkill)
+- name: Download "unzip" and "procps" (for pkill)
   package:
     name:
       - unzip
@@ -198,29 +195,29 @@ Ajout du paquet `procps` dans la liste des dépendances installées par le playb
     state: present
 ```
 
-### Ce qu'il faut en retenir
-Regrouper les installations de dépendances systèmes dans une seule tâche `package` avec une liste est une bonne pratique Ansible (une seule transaction apt, idempotent, plus lisible).
+### What to remember
+Grouping system dependency installations in a single `package` task with a list is an Ansible best practice (single apt transaction, idempotent, more readable).
 
 ---
 
-## 7. WAF | Playbook : Logs Nginx symlinkés vers `/dev/stdout` — Promtail ne peut pas les lire
+## 7. WAF | Playbook: Nginx logs symlinked to `/dev/stdout` — Promtail can't read them
 
-### Le problème exact
-Pendant les tests de validation, la commande `podman exec waf cat /var/log/nginx/access.log` bloquait indéfiniment et ne retournait rien. L'inspection du répertoire révélait :
+### The exact problem
+During validation tests, the command `podman exec waf cat /var/log/nginx/access.log` hung indefinitely and returned nothing. Inspecting the directory revealed:
 ```bash
 podman exec waf ls -la /var/log/nginx/
 # lrwxrwxrwx. root root 11 May 19  access.log -> /dev/stdout
 # lrwxrwxrwx. root root 11 May 19  error.log -> /dev/stderr
 ```
-Promtail essayait de « lire » un fichier qui n'était qu'un lien symbolique vers la sortie standard du conteneur — un pseudo-fichier en écriture seule. Il ne pouvait donc jamais envoyer un seul log vers Loki.
+Promtail tried to "read" a file that was only a symbolic link to the container's standard output — a write-only pseudo-file. It could therefore never send a single log to Loki.
 
-### Comment le problème a été identifié
-C'est une convention Docker très répandue : par défaut, les images redirigent les logs applicatifs vers `stdout/stderr` pour que le démon Docker (ou Podman) les collecte via `docker logs`. C'est un excellent réflexe pour un déploiement classique, mais c'est **incompatible avec un agent de collecte de fichiers** comme Promtail, qui a besoin de vrais fichiers à « tail ».
+### How the problem was identified
+This is a very common Docker convention: by default, images redirect application logs to `stdout/stderr` so the Docker (or Podman) daemon can collect them via `docker logs`. This is an excellent reflex for classic deployment, but it's **incompatible with a file collection agent** like Promtail, which needs real files to "tail".
 
-### La Solution
-Ajout d'une tâche Ansible exécutée avant le lancement de Promtail pour substituer les symlinks par de vrais fichiers vides :
+### The Solution
+Added an Ansible task executed before starting Promtail to replace symlinks with real empty files:
 ```yaml
-- name: "WAF | Remplacer les symlinks de logs Nginx par de vrais fichiers (pour Promtail)"
+- name: "WAF | Replace Nginx log symlinks with real files (for Promtail)"
   shell: |
     if [ -L /var/log/nginx/access.log ]; then rm /var/log/nginx/access.log && touch /var/log/nginx/access.log; fi
     if [ -L /var/log/nginx/error.log ]; then rm /var/log/nginx/error.log && touch /var/log/nginx/error.log; fi
@@ -228,115 +225,115 @@ Ajout d'une tâche Ansible exécutée avant le lancement de Promtail pour substi
   changed_when: false
 ```
 
-### Ce qu'il faut en retenir
-Lors du déploiement d'une stack observabilité (Promtail, Filebeat, Fluentd…) sur des conteneurs Docker, **toujours vérifier si les logs sont de vrais fichiers ou des symlinks vers stdout/stderr**. C'est un piège quasi-systématique avec les images officielles.
+### What to remember
+When deploying an observability stack (Promtail, Filebeat, Fluentd…) on Docker containers, **always check if logs are real files or symlinks to stdout/stderr**. This is an almost systematic pitfall with official images.
 
-### État final après résolution de toutes les erreurs WAF (Phase 2)
-- Nginx se recharge correctement sans erreur de syntaxe ✅
-- Config JSON active, les requêtes génèrent des logs structurés ✅
-- `pgrep` et `pkill` disponibles dans le conteneur ✅
-- Logs dans de vrais fichiers, lisibles par Promtail ✅
+### Final state after resolving all WAF errors (Phase 2)
+- Nginx reloads correctly without syntax errors ✅
+- JSON config active, requests generate structured logs ✅
+- `pgrep` and `pkill` available in the container ✅
+- Logs in real files, readable by Promtail ✅
 
-**Validation :**
+**Validation:**
 ```bash
-# Requête test à travers le WAF
+# Test request through the WAF
 curl -s http://localhost:8080/rest/products/search\?q\=test
-# → Réponse JSON de Juice Shop ✅
+# → JSON response from Juice Shop ✅
 
-# Log JSON généré
+# Generated JSON log
 podman exec waf cat /var/log/nginx/access.log | tail -1
 # → {"time":"2026-06-17T07:15:57+00:00","remote_addr":"10.89.2.3","method":"GET","uri":"/rest/products/search?q=test","status":200,...}
 
-# Promtail actif
+# Active Promtail
 podman exec waf pgrep -a promtail
 # → 2246 /usr/local/bin/promtail -config.file=/etc/promtail-config.yml ✅
 ```
 
 ---
 
-## 8. DB | Playbook : Mot de passe MySQL incorrect dans le vault — `Access denied for user 'root'`
+## 8. DB | Playbook: Incorrect MySQL password in vault — `Access denied for user 'root'`
 
-### Le problème exact
-Lors de la première exécution du playbook `db-hardening.yml`, la tâche de suppression des utilisateurs anonymes échouait immédiatement :
+### The exact problem
+During the first execution of the `db-hardening.yml` playbook, the task to remove anonymous users failed immediately:
 ```
 fatal: [mysql-db]: FAILED! => {}
 MSG: unable to connect to database, check login_user and login_password are correct
 Exception message: (1045, "Access denied for user 'root'@'localhost' (using password: YES)")
 ```
 
-### Comment le problème a été identifié
-Le vault Ansible (`group_vars/all/vault.yml`) avait été initialisé avec un mot de passe de test (`SOCops@#`) au lieu du vrai mot de passe utilisé lors de la création du conteneur MySQL par Terraform.
+### How the problem was identified
+The Ansible vault (`group_vars/all/vault.yml`) had been initialized with a test password (`SOCops@#`) instead of the real password used when creating the MySQL container by Terraform.
 
-Le mot de passe réel a été retrouvé grâce à la commande d'inspection du conteneur :
+The real password was found using the container inspection command:
 ```bash
 podman inspect mysql-db | grep -A 5 "Env"
 # → "MYSQL_ROOT_PASSWORD=My_@password"
 ```
-Cette commande liste toutes les variables d'environnement du conteneur, y compris le mot de passe root passé par Terraform via la variable `MYSQL_ROOT_PASSWORD`.
+This command lists all environment variables of the container, including the root password passed by Terraform via the `MYSQL_ROOT_PASSWORD` variable.
 
-### La Solution
-Modification du fichier `vault.yml` (via `ansible-vault edit`) pour aligner `mysql_root_password` avec la valeur réellement passée à Terraform dans `terraform.tfvars`.
+### The Solution
+Modified the `vault.yml` file (via `ansible-vault edit`) to align `mysql_root_password` with the value actually passed to Terraform in `terraform.tfvars`.
 
-### Ce qu'il faut en retenir
-Les secrets Terraform et les secrets Ansible sont deux systèmes distincts. **Il faut s'assurer dès le départ que la même valeur de mot de passe est déclarée dans les deux endroits**, ou mieux, n'en avoir qu'une seule source de vérité (voir entry #10 pour les approches alternatives).
+### What to remember
+Terraform secrets and Ansible secrets are two distinct systems. **You must ensure from the start that the same password value is declared in both places**, or better, have only one source of truth (see entry #10 for alternative approaches).
 
 ---
 
-## 9. DB | Playbook : Plugin `audit_log` absent — MySQL Community Edition
+## 9. DB | Playbook: `audit_log` plugin missing — MySQL Community Edition
 
-### Le problème exact
-La tâche d'installation du plugin d'audit échouait avec une erreur de bibliothèque partagée introuvable :
+### The exact problem
+The task to install the audit plugin failed with a missing shared library error:
 ```
 Cannot execute SQL 'INSTALL PLUGIN audit_log SONAME 'audit_log.so';' args [None]:
 (1126, "Can't open shared library '/usr/lib64/mysql/plugin/audit_log.so'
 (errno: 0 [...]: No such file or directory)")
 ```
 
-### Comment le problème a été identifié
-Le plugin `audit_log` (sous forme de fichier `.so`) est une fonctionnalité **exclusive à MySQL Enterprise Edition**. L'image Docker utilisée (`mysql:8.0`) est la version **Community Edition** distribuée sous licence GPL, qui ne l'inclut pas.
+### How the problem was identified
+The `audit_log` plugin (as a `.so` file) is a feature **exclusive to MySQL Enterprise Edition**. The Docker image used (`mysql:8.0`) is the **Community Edition** distributed under GPL license, which doesn't include it.
 
-**Alternatives existantes pour l'audit dans MySQL Community :**
-| Méthode | Description | Inconvénient |
-|---|---|---|
-| `audit_log.so` | Plugin natif, logs JSON/XML structurés | **Enterprise uniquement** |
-| `general_log` | Log de toutes les requêtes SQL | **Extrêmement verbeux**, impact performance sévère, non recommandé en prod |
-| **`component_validate_password`** | Composant de validation de mot de passe (installé dans ce projet) | Validation seulement, pas d'audit |
-| **MariaDB Audit Plugin** | Plugin open-source, fonctionne avec certaines versions MySQL | Compatibilité non garantie avec MySQL 8.0 |
+**Existing alternatives for auditing in MySQL Community:**
+| Method | Description | Drawback |
+|--------|-------------|----------|
+| `audit_log.so` | Native plugin, structured JSON/XML logs | **Enterprise only** |
+| `general_log` | Log all SQL queries | **Extremely verbose**, severe performance impact, not recommended in production |
+| **`component_validate_password`** | Password validation component (installed in this project) | Validation only, not auditing |
+| **MariaDB Audit Plugin** | Open-source plugin, works with some MySQL versions | Compatibility not guaranteed with MySQL 8.0 |
 
-`general_log` a été mentionné comme option mais volontairement écarté en raison de sa verbosité excessive et de l'impact sur les performances.
+`general_log` was mentioned as an option but intentionally rejected due to its excessive verbosity and performance impact.
 
-### La Solution
-La tâche d'installation du plugin `audit_log` et les tâches de configuration associées (`audit_log_policy`, `audit_log_format`) ont été **conservées dans le playbook mais gérées de manière non bloquante** via `failed_when`. La stratégie d'audit adoptée s'appuie sur :
-- La journalisation des erreurs MySQL (`log_error = /var/log/mysql/error.log`)
-- Le composant `validate_password` pour renforcer la politique de mots de passe
-- Les logs du WAF (Nginx + ModSecurity) pour tracer les tentatives d'attaque au niveau applicatif
+### The Solution
+The task to install the `audit_log` plugin and associated configuration tasks (`audit_log_policy`, `audit_log_format`) were **kept in the playbook but managed non-blockingly** via `failed_when`. The adopted audit strategy relies on:
+- MySQL error logging (`log_error = /var/log/mysql/error.log`)
+- The `validate_password` component to strengthen password policy
+- WAF logs (Nginx + ModSecurity) to trace application-level attack attempts
 
-### Ce qu'il faut en retenir
-Toujours vérifier la matrice de fonctionnalités Community vs Enterprise d'un SGBD avant de planifier des contrôles de sécurité. Pour un projet de portfolio, le choix conscient et documenté d'une alternative vaut autant qu'une implémentation parfaite.
+### What to remember
+Always check the Community vs Enterprise feature matrix of a DBMS before planning security controls. For a portfolio project, the conscious and documented choice of an alternative is worth as much as a perfect implementation.
 
 ---
 
-## 10. 🔐 Réflexion Sécurité : Secrets exposés via `podman inspect`
+## 10. 🔐 Security Reflection: Secrets exposed via `podman inspect`
 
-### Le constat
-La commande `podman inspect mysql-db | grep Env` a permis de retrouver le mot de passe root MySQL **en clair** dans la sortie :
+### The observation
+The command `podman inspect mysql-db | grep Env` allowed retrieving the MySQL root password **in plain text** from the output:
 ```json
 "Env": [
   "MYSQL_ROOT_PASSWORD=My_@password",
   ...
 ]
 ```
-Ce comportement est le comportement par défaut de Docker/Podman : les variables d'environnement passées à un conteneur sont stockées dans ses métadonnées et accessibles à tout utilisateur ayant accès au socket Docker/Podman (c'est-à-dire, par défaut, tout membre du groupe `docker` ou tout utilisateur rootless sur sa propre session).
+This is the default behavior of Docker/Podman: environment variables passed to a container are stored in its metadata and accessible to any user with access to the Docker/Podman socket (i.e., by default, any member of the `docker` group or any rootless user on their own session).
 
-### Pourquoi c'est une vraie menace
-Dans un environnement partagé (serveur de CI/CD, machine de dev mutualisée), n'importe quel utilisateur ayant accès aux commandes Podman/Docker peut exfiltrer l'ensemble des secrets de tous les conteneurs en quelques secondes. C'est une surface d'attaque critique en post-exploitation.
+### Why this is a real threat
+In a shared environment (CI/CD server, shared dev machine), any user with access to Podman/Docker commands can exfiltrate all secrets of all containers in seconds. This is a critical post-exploitation attack surface.
 
-### Politiques de sécurité qui auraient pu être appliquées
+### Security policies that could have been applied
 
-#### 1. Ne jamais passer de secrets via des variables d'environnement
-Utiliser des **fichiers de secrets montés** en volume, qui ne sont pas exposés par `inspect` :
+#### 1. Never pass secrets via environment variables
+Use **secret files mounted** as volumes, which are not exposed by `inspect`:
 ```hcl
-# Dans main.tf : monter un fichier de secrets au lieu de passer une env var
+# In main.tf: mount a secret file instead of passing an env var
 volumes {
   host_path      = "/run/secrets/mysql_root_password"
   container_path = "/run/secrets/mysql_root_password"
@@ -344,100 +341,96 @@ volumes {
 }
 ```
 
-#### 2. Docker/Podman Secrets (mode Swarm ou Podman Secrets)
-Podman dispose d'un mécanisme natif de secrets qui monte le secret en tant que fichier en mémoire (`tmpfs`) et ne l'expose pas via `inspect` :
+#### 2. Docker/Podman Secrets (Swarm mode or Podman Secrets)
+Podman has a native secrets mechanism that mounts the secret as an in-memory file (`tmpfs`) and doesn't expose it via `inspect`:
 ```bash
-# Créer le secret
+# Create the secret
 echo "My_@password" | podman secret create mysql_root_password -
 
-# Référencer dans le conteneur (via --secret, pas --env)
+# Reference in the container (via --secret, not --env)
 podman run --secret mysql_root_password,type=env,target=MYSQL_ROOT_PASSWORD mysql:8.0
 ```
 
-#### 3. HashiCorp Vault (approche Enterprise)
-Intégrer un gestionnaire de secrets dédié (Vault) qui délivre les credentials dynamiquement au moment du démarrage du conteneur, sans jamais les stocker dans les métadonnées.
+#### 3. HashiCorp Vault (Enterprise approach)
+Integrate a dedicated secrets manager (Vault) that dynamically delivers credentials at container startup, without ever storing them in metadata.
 
-#### 4. Limiter l'accès au socket Podman/Docker
-Appliquer le principe du moindre privilège : seuls les utilisateurs/processus strictement nécessaires doivent pouvoir exécuter des commandes `podman inspect`.
+#### 4. Limit access to Podman/Docker socket
+Apply the principle of least privilege: only strictly necessary users/processes should be able to execute `podman inspect` commands.
 
-### État actuel dans ce projet
-Le mot de passe est géré via **Ansible Vault** (`vault.yml`) pour la partie configuration, ce qui est correct. La faiblesse réside côté Terraform : le mot de passe est passé via une variable d'environnement Docker. Pour un projet de portfolio, ce niveau est acceptable et documenté. Pour une mise en production réelle, les approches 1 ou 2 ci-dessus seraient obligatoires.
-
-
-## 11. Grafana : Provisioning automatique échoue (Permission denied)
-
-### Problème
-Le dossier `/etc/grafana/provisioning/datasources/` est inaccessible 
-en lecture depuis le container Grafana avec Podman rootless.
-
-### Solution de contournement
-Configuration manuelle de la datasource Loki via l'UI Grafana 
-(URL: http://loki:3100). La datasource est persistée dans le 
-volume Grafana interne.
-
-### Impact
-Mineur — la datasource est configurée et fonctionnelle. 
-Le fichier `loki_datasource.yml` reste dans le repo à titre 
-documentaire mais n'est pas chargé automatiquement avec Podman rootless.
+### Current state in this project
+The password is managed via **Ansible Vault** (`vault.yml`) for the configuration part, which is correct. The weakness lies on the Terraform side: the password is passed via a Docker environment variable. For a portfolio project, this level is acceptable and documented. For real production, approaches 1 or 2 above would be mandatory.
 
 ---
 
-## 12. WAF : Toutes les requêtes passent en HTTP 200 — le WAF ne bloque rien
+## 11. Grafana: Automatic provisioning fails (Permission denied)
 
-### Le problème exact
+### Problem
+The `/etc/grafana/provisioning/datasources/` folder is not readable from the Grafana container with Podman rootless.
 
-Après déploiement complet (Terraform + Ansible), le WAF était opérationnel et les logs remontaient bien dans Grafana/Loki. Cependant, en lançant le script de simulation d'attaque (`simulate_killchain.sh`), **toutes les requêtes malveillantes obtenaient un HTTP 200 OK**. Les injections SQL, les XSS, les path traversals — rien n'était bloqué. Le WAF agissait comme un simple reverse proxy pass-through.
+### Workaround
+Manual configuration of the Loki datasource via Grafana UI (URL: http://loki:3100). The datasource is persisted in Grafana's internal volume.
 
-L'inspection des logs Grafana montrait les requêtes avec le statut `200`, comme si aucune règle de sécurité n'avait été déclenchée.
+### Impact
+Minor — the datasource is configured and functional. The `loki_datasource.yml` file remains in the repo for documentation but is not automatically loaded with Podman rootless.
 
-### Comment le problème a été identifié
+---
 
-Le diagnostic a suivi une approche systématique en remontant la chaîne de responsabilité :
+## 12. WAF: All requests pass as HTTP 200 — WAF blocks nothing
 
-#### Étape 1 — Vérification du chargement des règles CRS
+### The exact problem
+
+After complete deployment (Terraform + Ansible), the WAF was operational and logs were flowing well into Grafana/Loki. However, when running the attack simulation script (`simulate_killchain.sh`), **all malicious requests received HTTP 200 OK**. SQL injections, XSS, path traversals — nothing was blocked. The WAF acted as a simple pass-through reverse proxy.
+
+Inspecting logs in Grafana showed requests with `200` status, as if no security rule had been triggered.
+
+### How the problem was identified
+
+Diagnosis followed a systematic approach, tracing the chain of responsibility:
+
+#### Step 1 — Verifying CRS rules were loaded
 ```bash
 podman logs waf 2>&1 | grep "rules loaded"
 # → ModSecurity-nginx v1.0.4 (rules loaded inline/local/remote: 0/846/0)
 ```
-846 règles chargées — ce n'était pas un problème de règles manquantes.
+846 rules loaded — this wasn't a problem of missing rules.
 
-#### Étape 2 — Vérification du mode du moteur ModSecurity
+#### Step 2 — Checking ModSecurity engine mode
 ```bash
 podman exec waf env | grep MODSEC_RULE_ENGINE
 # → MODSEC_RULE_ENGINE=DetectionOnly
 ```
-**Première alerte** : le moteur tournait en mode `DetectionOnly`. Ce mode spécifie que ModSecurity doit analyser le trafic et journaliser les alertes, mais **sans jamais bloquer une requête**, même si une règle est violée.
+**First alert**: the engine was running in `DetectionOnly` mode. This mode specifies that ModSecurity should analyze traffic and log alerts, but **never block a request**, even if a rule is violated.
 
-#### Étape 3 — Traçage du chemin de configuration réellement chargé par Nginx
+#### Step 3 — Tracing the actual config path loaded by Nginx
 ```bash
 podman exec waf grep -r "modsecurity_rules_file" /etc/nginx/
 # → /etc/nginx/conf.d/modsecurity.conf:
 #   modsecurity_rules_file /etc/modsecurity.d/setup.conf;
 ```
-En suivant la chaîne d'inclusion :
+Following the include chain:
 ```
 /etc/nginx/conf.d/modsecurity.conf
   → modsecurity_rules_file /etc/modsecurity.d/setup.conf
-    → Include /etc/modsecurity.d/modsecurity.conf     ← fichier réel
+    → Include /etc/modsecurity.d/modsecurity.conf     ← actual file
 ```
-Or, le playbook Ansible (`waf-setup.yml`) modifiait ce fichier :
+However, the Ansible playbook (`waf-setup.yml`) modified:
 ```yaml
-- name: "WAF | Activer ModSecurity en mode blocage"
+- name: "WAF | Enable ModSecurity in blocking mode"
   lineinfile:
-    path: /etc/nginx/modsecurity.d/modsecurity.conf   ← MAUVAIS CHEMIN
+    path: /etc/nginx/modsecurity.d/modsecurity.conf   ← WRONG PATH
     regexp: '^SecRuleEngine'
     line: 'SecRuleEngine On'
 ```
 
-**Deuxième alerte** : le playbook éditait `/etc/nginx/modsecurity.d/modsecurity.conf` alors que Nginx chargeait **`/etc/modsecurity.d/modsecurity.conf`** (sans le préfixe `nginx/`). Ce sont deux fichiers distincts dans l'image. Le fichier réellement chargé était donc toujours en `DetectionOnly` :
+**Second alert**: the playbook was editing `/etc/nginx/modsecurity.d/modsecurity.conf` while Nginx was loading **`/etc/modsecurity.d/modsecurity.conf`** (without the `nginx/` prefix). These are two different files in the image. The actually-loaded file was still in `DetectionOnly`:
 
 ```bash
 podman exec waf grep SecRuleEngine /etc/modsecurity.d/modsecurity.conf
-# → SecRuleEngine DetectionOnly    ← jamais touché par Ansible !
+# → SecRuleEngine DetectionOnly    ← never touched by Ansible!
 ```
 
-#### Étape 4 — Analyse des actions par défaut du CRS
-Même après correction du `SecRuleEngine On`, les attaques n'étaient toujours pas bloquées. L'inspection des `SecDefaultAction` dans le CRS a révélé la cause racine :
+#### Step 4 — Analyzing CRS default actions
+Even after fixing `SecRuleEngine On`, attacks still weren't blocked. Inspecting the `SecDefaultAction` in the CRS revealed the root cause:
 
 ```bash
 podman exec waf grep "SecDefaultAction" /etc/modsecurity.d/owasp-crs/crs-setup.conf
@@ -445,55 +438,55 @@ podman exec waf grep "SecDefaultAction" /etc/modsecurity.d/owasp-crs/crs-setup.c
 # → SecDefaultAction "phase:2,pass,log,tag:'modsecurity'"
 ```
 
-**Troisième alerte** : les actions par défaut du CRS étaient configurées en mode `pass`. Cela signifie que même si une règle détectait une attaque (incrémentation du score d'anomalie), l'action finale était `pass` (transmettre la requête) au lieu de `deny` (bloquer avec un 403). C'est le comportement par défaut du fichier `crs-setup.conf` livré avec l'image — un choix volontaire des développeurs pour laisser l'utilisateur expliciter sa politique de blocage.
+**Third alert**: the CRS default actions were configured in `pass` mode. This means even if a rule detects an attack (incrementing the anomaly score), the final action was `pass` (forward the request) instead of `deny` (block with a 403). This is the intentional default behavior of the `crs-setup.conf` file shipped with the image — a deliberate choice by developers to let users explicitly define their blocking policy.
 
-### La Solution
+### The Solution
 
-**3 corrections ont été appliquées :**
+**3 corrections were applied:**
 
-#### 1. Terraform — Variable d'environnement du conteneur
-Le mode pass-through était également codé en dur dans le provisioning Terraform, rendant la configuration initiale du conteneur systématiquement en `DetectionOnly` :
+#### 1. Terraform — Container environment variable
+The pass-through mode was also hard-coded in Terraform provisioning, making the container's initial configuration systematically `DetectionOnly`:
 
 ```hcl
-# AVANT (main.tf)
+# BEFORE (main.tf)
 env = [
   "BACKEND=http://juiceshop:3000",
   "MODSEC_RULE_ENGINE=DetectionOnly",  # ← pass-through
 ]
 
-# APRÈS
+# AFTER
 env = [
   "BACKEND=http://juiceshop:3000",
-  "MODSEC_RULE_ENGINE=On",            # ← mode actif
+  "MODSEC_RULE_ENGINE=On",            # ← active mode
 ]
 ```
 
-Cette variable d'environnement est utilisée par le template de démarrage de l'image CRS (`/etc/nginx/templates/modsecurity.d/modsecurity.conf.template`) qui génère la configuration initiale au lancement du conteneur. En passant `On` directement, le conteneur naît directement en mode blocage.
+This environment variable is used by the startup template of the CRS image (`/etc/nginx/templates/modsecurity.d/modsecurity.conf.template`) which generates the initial configuration at container startup. By passing `On` directly, the container is born directly in blocking mode.
 
-#### 2. Ansible — Correction du chemin du fichier modsecurity.conf
-Le playbook `waf-setup.yml` a été corrigé pour cibler le bon fichier :
+#### 2. Ansible — Correcting the modsecurity.conf file path
+The `waf-setup.yml` playbook was corrected to target the correct file:
 
 ```yaml
-# AVANT
-- name: "WAF | Activer ModSecurity en mode blocage"
+# BEFORE
+- name: "WAF | Enable ModSecurity in blocking mode"
   lineinfile:
-    path: /etc/nginx/modsecurity.d/modsecurity.conf   # ← inexistant
+    path: /etc/nginx/modsecurity.d/modsecurity.conf   # ← non-existent
     regexp: '^SecRuleEngine'
     line: 'SecRuleEngine On'
 
-# APRÈS
-- name: "WAF | Activer ModSecurity en mode blocage"
+# AFTER
+- name: "WAF | Enable ModSecurity in blocking mode"
   lineinfile:
-    path: /etc/modsecurity.d/modsecurity.conf          # ← le vrai fichier
+    path: /etc/modsecurity.d/modsecurity.conf          # ← actual file
     regexp: '^SecRuleEngine'
     line: 'SecRuleEngine On'
 ```
 
-#### 3. Ansible — Forçage du blocage dans les actions par défaut du CRS
-Une nouvelle tâche a été ajoutée pour écraser les `SecDefaultAction` pass → deny dans `crs-setup.conf` :
+#### 3. Ansible — Forcing blocking in CRS default actions
+A new task was added to override the `SecDefaultAction` pass → deny in `crs-setup.conf`:
 
 ```yaml
-- name: "WAF | Forcer le blocage (deny 403) dans les actions par défaut du CRS"
+- name: "WAF | Force blocking (deny 403) in CRS default actions"
   lineinfile:
     path: /etc/modsecurity.d/owasp-crs/crs-setup.conf
     regexp: '^SecDefaultAction'
@@ -501,28 +494,28 @@ Une nouvelle tâche a été ajoutée pour écraser les `SecDefaultAction` pass �
   loop:
     - "1"
     - "2"
-  notify: Recharger Nginx
+  notify: Reload Nginx
 ```
 
 ### Validation
 
 ```bash
-# Test d'une injection SQL
+# Test SQL injection
 curl -s -o /dev/null -w "HTTP %{http_code}\n" \
   "http://localhost:8080/rest/products/search?q=test' UNION SELECT null--"
-# → HTTP 403 ✅ Bloqué
+# → HTTP 403 ✅ Blocked
 
-# Test d'un XSS
+# Test XSS
 curl -s -o /dev/null -w "HTTP %{http_code}\n" \
   "http://localhost:8080/rest/products/search?q=<script>alert('XSS')</script>"
-# → HTTP 403 ✅ Bloqué
+# → HTTP 403 ✅ Blocked
 
-# Test d'une requête légitime (vérification non-régression)
+# Test legitimate request (non-regression check)
 curl -s -o /dev/null -w "HTTP %{http_code}\n" \
   "http://localhost:8080/rest/products/search?q=apple"
-# → HTTP 200 ✅ Toujours OK
+# → HTTP 200 ✅ Still OK
 
-# Vérification de la configuration active
+# Verify active configuration
 podman exec waf grep SecRuleEngine /etc/modsecurity.d/modsecurity.conf
 # → SecRuleEngine On
 
@@ -531,162 +524,24 @@ podman exec waf grep SecDefaultAction /etc/modsecurity.d/owasp-crs/crs-setup.con
 # → SecDefaultAction "phase:2,log,deny,status:403,tag:'modsecurity'"
 ```
 
-### Pourquoi cette solution et ce qu'il faut en retenir
+### Why this solution and what to remember
 
-Ce problème illustre parfaitement la différence entre un WAF en mode **Détection** et un WAF en mode **Prévention** — un concept fondamental en sécurité des applications :
+This problem perfectly illustrates the difference between a WAF in **Detection** mode and a WAF in **Prevention** mode — a fundamental security concept:
 
-| Mode | Comportement | Usage |
-|------|-------------|-------|
-| `DetectionOnly` | Analyse + Log | Déploiement initial, validation des règles, analyse d'impact |
-| `On` | Analyse + Log + Blocage | Production, après validation des règles et tuning des faux positifs |
+| Mode | Behavior | Usage |
+|------|----------|-------|
+| `DetectionOnly` | Analysis + Log | Initial deployment, rule validation, impact analysis |
+| `On` | Analysis + Log + Blocking | Production, after rule validation and false positive tuning |
 
-Le mode `DetectionOnly` est la meilleure pratique pour l'intégration initiale d'un WAF : il permet de mesurer l'impact sur le trafic légitime (faux positifs) avant d'activer le blocage. **Cependant, il est impératif de basculer en mode `On` une fois la phase de tuning terminée**, sans quoi le WAF n'apporte aucune protection réelle.
+`DetectionOnly` mode is the best practice for initial WAF integration: it allows measuring the impact on legitimate traffic (false positives) before enabling blocking. **However, it is imperative to switch to `On` mode once the tuning phase is complete**, otherwise the WAF provides no real protection.
 
-L'erreur de chemin dans le playbook Ansible (`/etc/nginx/modsecurity.d/` vs `/etc/modsecurity.d/`) est un piège classique de l'image `owasp/modsecurity-crs:nginx` qui maintient **deux arborescences de configuration** :
-- `/etc/nginx/modsecurity.d/` : fichiers générés par template à partir des variables d'environnement (utilisés comme source par le script d'entrypoint)
-- `/etc/modsecurity.d/` : fichiers réels chargés par Nginx via la directive `modsecurity_rules_file`
+The incorrect path in the Ansible playbook (`/etc/nginx/modsecurity.d/` vs `/etc/modsecurity.d/`) is a classic pitfall of the `owasp/modsecurity-crs:nginx` image which maintains **two configuration directory trees**:
+- `/etc/nginx/modsecurity.d/`: files generated from templates using environment variables (used as source by the entrypoint script)
+- `/etc/modsecurity.d/`: actual files loaded by Nginx via the `modsecurity_rules_file` directive
 
-L'image utilise un mécanisme de templating au premier démarrage : les fichiers dans `/etc/nginx/templates/` sont copiés et interpolés avec les variables d'environnement (dont `MODSEC_RULE_ENGINE`) pour produire la configuration dans `/etc/modsecurity.d/`. Ansible doit donc cibler les fichiers de destination réels, pas les fichiers sources de template.
+The image uses a templating mechanism on first startup: files in `/etc/nginx/templates/` are copied and interpolated with environment variables (including `MODSEC_RULE_ENGINE`) to produce configuration in `/etc/modsecurity.d/`. Ansible must therefore target the actual destination files, not the template source files.
 
-Enfin, la découverte des `SecDefaultAction = pass` dans `crs-setup.conf` rappelle que **les actions par défaut du CRS sont indépendantes du `SecRuleEngine`**. On peut avoir `SecRuleEngine On` (moteur actif) mais des `SecDefaultAction = pass` (aucune action de blocage). Les deux paramètres doivent être alignés pour une protection effective.
+Finally, discovering `SecDefaultAction = pass` in `crs-setup.conf` reminds us that **CRS default actions are independent of `SecRuleEngine`**. You can have `SecRuleEngine On` (engine active) but `SecDefaultAction = pass` (no blocking action). Both parameters must be aligned for effective protection.
 
-### Et avec Docker natif ?
-Aucun impact : le problème est indépendant du moteur de conteneurisation. Il s'agit d'une erreur de configuration applicative (mauvais chemin de fichier + politique CRS en mode pass-through), qui serait identique sous Docker, Podman, ou containerd.
-
-## 13. WAF : Toutes les requêtes passent en HTTP 200 — le WAF ne bloque rien
-
-### Le problème exact
-
-Après déploiement complet (Terraform + Ansible), le WAF était opérationnel 
-et les logs remontaient bien dans Grafana/Loki. Cependant, en lançant le 
-script de simulation d'attaque (`simulate_killchain.sh`), **toutes les 
-requêtes malveillantes obtenaient un HTTP 200 OK**. Les injections SQL, 
-les XSS, les path traversals — rien n'était bloqué. Le WAF agissait comme 
-un simple reverse proxy pass-through.
-
-### Comment le problème a été identifié
-
-#### Étape 1 — Vérification du mode du moteur ModSecurity
-```bash
-podman exec waf grep SecRuleEngine /etc/nginx/modsecurity.d/modsecurity.conf
-# → SecRuleEngine On  ← semblait correct
-```
-
-#### Étape 2 — Vérification du nombre de règles chargées
-```bash
-podman logs waf 2>&1 | grep "rules loaded"
-# → rules loaded inline/local/remote: 0/846/0
-```
-846 règles chargées, mais **zéro règle CRS** — les règles OWASP 
-(SQLi, XSS, etc.) n'étaient pas parmi elles.
-
-#### Étape 3 — Analyse du fichier `crs-setup.conf`
-```bash
-podman exec waf grep SecDefaultAction \
-  /etc/modsecurity.d/owasp-crs/crs-setup.conf
-# → SecDefaultAction "phase:1,pass,log,tag:'modsecurity'"
-# → SecDefaultAction "phase:2,pass,log,tag:'modsecurity'"
-```
-**Cause racine** : même si une règle détecte une attaque, l'action 
-par défaut est `pass` — transmettre la requête sans la bloquer. 
-C'est le comportement par défaut volontaire de l'image CRS, qui 
-laisse l'utilisateur définir explicitement sa politique de blocage.
-
-#### Étape 4 — Variable invalide dans nginx.conf
-```bash
-podman exec waf nginx -T 2>&1 | grep "unknown"
-# → unknown "modsec_inbound_anomaly_score" variable
-```
-Le `log_format` contenait une variable ModSecurity inexposée dans 
-l'espace de variables Nginx. Nginx en mode strict refusait de 
-recharger la config — les corrections de blocage n'étaient donc 
-jamais prises en compte.
-
-### Les Solutions Appliquées
-
-#### 1. Suppression de la variable invalide dans `nginx.conf`
-Retrait de `$modsec_inbound_anomaly_score` et `$matched_var` du 
-`log_format`. Le log JSON conserve les champs essentiels.
-
-#### 2. Activation du blocage dans `modsecurity-override.conf`
-```bash
-# Via Ansible — task ajoutée dans waf-setup.yml
-- name: "WAF | Activer le blocage dans modsecurity-override.conf"
-  copy:
-    dest: /etc/nginx/modsecurity.d/modsecurity-override.conf
-    content: |
-      SecDefaultAction "phase:1,log,auditlog,deny,status:403"
-      SecDefaultAction "phase:2,log,auditlog,deny,status:403"
-```
-
-#### 3. Correction du SecRuleEngine dans Terraform
-```hcl
-env = [
-  "BACKEND=http://juiceshop:3000",
-  "MODSEC_RULE_ENGINE=On",
-]
-```
-
-### Validation
-```bash
-# SQLi → bloquée
-curl -s -o /dev/null -w "%{http_code}\n" \
-  "http://localhost:8080/rest/products/search?q=1'+UNION+SELECT+null--"
-# → 403 ✅
-
-# Requête légitime → passe
-curl -s -o /dev/null -w "%{http_code}\n" \
-  "http://localhost:8080/rest/products/search?q=apple"
-# → 200 ✅
-```
-
-### Ce qu'il faut en retenir
-Il existe une différence fondamentale entre `SecRuleEngine On` 
-(moteur actif) et `SecDefaultAction` (action sur détection). 
-On peut avoir le moteur actif mais une politique de `pass` — 
-le WAF analyse sans jamais bloquer. **Les deux paramètres doivent 
-être alignés** pour une protection effective.
-
-L'image `owasp/modsecurity-crs:nginx` expose `MODSEC_RULE_ENGINE` 
-comme variable d'environnement, mais pas `SecDefaultAction` — 
-ce dernier doit être configuré manuellement via le fichier 
-`modsecurity-override.conf`.
-
----
-
-## 14. WAF : Faux positif — socket.io bloqué par le CRS
-
-### Le problème exact
-Après activation du mode blocage, des requêtes légitimes de 
-Juice Shop vers `/socket.io/` recevaient des **HTTP 403**. 
-Juice Shop utilise Socket.IO pour les notifications temps réel — 
-ces connexions sont bloquées car certains paramètres de l'URL 
-déclenchent des règles CRS de détection d'injection.
-
-### Comment le problème a été identifié
-Dans Grafana → filtre `{job="waf"} |= "403"` → les URIs bloquées 
-contiennent massivement `/socket.io/?EIO=4&transport=polling`.
-
-C'est un **faux positif classique** : le WAF confond des paramètres 
-techniques légitimes avec des patterns d'attaque.
-
-### La Solution
-Ajout d'une règle d'exception dans `ansible/files/waf/exclusion_rules.conf`,
-déployée via Ansible :
-
-```nginx
-# Exclusion socket.io — faux positif Juice Shop
-SecRule REQUEST_URI "@beginsWith /socket.io/" \
-    "id:1001,\
-    phase:1,\
-    pass,\
-    nolog,\
-    ctl:ruleEngine=DetectionOnly,\
-    msg:'Exclusion socket.io - trafic legitime Juice Shop'"
-```
-
-### Ce qu'il faut en retenir
-Le tuning des faux positifs est une activité permanente en 
-production. La démarche SOC : identifier le pattern dans les 
-logs → valider que c'est légitime → écrire la règle d'exception 
-→ déployer via IaC → vérifier la non-régression.
+### With native Docker?
+No impact: the problem is independent of the container engine. This is an application configuration error (wrong file path + CRS policy in pass-through mode), which would be identical under Docker, Podman, or containerd.
