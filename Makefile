@@ -14,4 +14,5 @@ help:
 	
 install:
     @echo "Installing dependencies..."
+	@chmod u+x ./scripts/installs.sh
 	@./scripts/installs.sh
