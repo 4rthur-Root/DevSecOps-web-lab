@@ -9,10 +9,10 @@ help:
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Targets:"
-    @echo "  install - Install dependencies"
-	@echo "  help - Shows this help"
-	
+	@echo "  install   Install dependencies"
+	@echo "  help      Shows this help"
+
 install:
-    @echo "Installing dependencies..."
+	@echo "Installing dependencies..."
 	@chmod u+x ./scripts/installs.sh
 	@./scripts/installs.sh
