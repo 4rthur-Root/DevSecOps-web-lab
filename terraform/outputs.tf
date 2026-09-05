@@ -13,3 +13,7 @@ output "waf_container_name" {
 output "mysql_container_name" {
   value = docker_container.mysql.name
 }
+
+output "alloy_container_name" {
+  value = docker_container.alloy.name
+}

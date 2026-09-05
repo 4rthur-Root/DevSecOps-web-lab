@@ -1,4 +1,4 @@
-# Définition du bloc Terraform
+# Definition of the Terraform provider and resources.
 terraform {
   required_providers {
     docker = {
@@ -13,12 +13,12 @@ provider "docker" {
   host = "unix:///run/user/1000/podman/podman.sock"
 }
 
-# Réseau isolé 
+# Isolated network for the containers
 resource "docker_network" "devsecops_net" {
   name = "devsecops-net"
 }
 
-# Volume pour les logs WAF
+# Volume for the  WAF logs - Alloy will read from here later
 resource "docker_volume" "waf_logs" {
   name = "waf-logs"
 }
@@ -49,6 +49,11 @@ resource "docker_image" "grafana" {
   keep_locally = true
 }
 
+resource "docker_image" "alloy" {
+  name         = "grafana/alloy:latest"
+  keep_locally = true
+}
+
 # Juice Shop 
 resource "docker_container" "juiceshop" {
   name  = "juiceshop"
@@ -58,7 +63,7 @@ resource "docker_container" "juiceshop" {
     name = docker_network.devsecops_net.name
   }
 
-  # Pas exposé directement - uniquement via le WAF
+  # Not directly exposed - only via the WAF
 }
 
 # MySQL
@@ -95,7 +100,7 @@ resource "docker_container" "waf" {
     "MODSEC_RULE_ENGINE=On",
   ]
 
-  # Volume pour les logs - Promtail lira ici plus tard
+  # Volume for the logs - Alloy will read from here later
   volumes {
     volume_name    = docker_volume.waf_logs.name
     container_path = "/var/log/nginx"
@@ -135,7 +140,7 @@ resource "docker_container" "grafana" {
     "GF_SECURITY_ADMIN_PASSWORD=${var.grafana_admin_password}",
   ]
 
-  # Grafana Provisioning (IaC : datasource + dashboard auto-chargés)
+  # Grafana Provisioning (IaC : datasource + dashboard provisioning)
   volumes {
     host_path      = abspath("${path.module}/grafana_provisioning/datasources")
     container_path = "/etc/grafana/provisioning/datasources"
@@ -145,6 +150,37 @@ resource "docker_container" "grafana" {
   volumes {
     host_path      = abspath("${path.module}/grafana_provisioning/dashboards")
     container_path = "/etc/grafana/provisioning/dashboards"
+    read_only      = true
+  }
+}
+
+# Alloy (Log collector replacing Promtail)
+resource "docker_container" "alloy" {
+  name  = "alloy"
+  image = docker_image.alloy.image_id
+
+  networks_advanced {
+    name = docker_network.devsecops_net.name
+  }
+
+  command = [
+    "run",
+    "--server.http.listen-addr=0.0.0.0:12345",
+    "--storage.path=/tmp/alloy",
+    "/etc/alloy/config.alloy"
+  ]
+
+  # Read Nginx logs from the shared named volume
+  volumes {
+    volume_name    = docker_volume.waf_logs.name
+    container_path = "/var/log/waf"
+    read_only      = true
+  }
+
+  # Mount Alloy configuration file
+  volumes {
+    host_path      = abspath("${path.module}/../ansible/files/alloy/config.alloy")
+    container_path = "/etc/alloy/config.alloy"
     read_only      = true
   }
 }
