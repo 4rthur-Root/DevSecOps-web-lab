@@ -18,9 +18,9 @@ resource "docker_network" "devsecops_net" {
   name = "devsecops-net"
 }
 
-# Volume for the  WAF logs - Alloy will read from here later
-resource "docker_volume" "waf_logs" {
-  name = "waf-logs"
+# Volume for the  WAF and MySQL logs - Alloy will read from here later
+resource "docker_volume" "lab_logs" {
+  name = "logs"
 }
 
 # Images 
@@ -84,6 +84,19 @@ resource "docker_container" "mysql" {
     "MYSQL_ROOT_PASSWORD=${var.mysql_root_password}",
     "MYSQL_DATABASE=juiceshop",
   ]
+
+  # Volume for MySQL logs (shared with Alloy)
+  volumes {
+    volume_name    = docker_volume.lab_logs.name
+    container_path = "/var/log/mysql"
+  }
+
+  # Make the automatic sample data provisionning at the beginning of the container
+  volumes {                                                                                                                                                         
+    host_path      = abspath("${path.module}/init.sql")                                                                                                             
+    container_path = "/docker-entrypoint-initdb.d/init.sql"                                                                                                         
+    read_only      = true                                                                                                                                           
+  }  
 }
 
 # WAF (Nginx + ModSecurity + OWASP CRS)
@@ -107,7 +120,7 @@ resource "docker_container" "waf" {
 
   # Volume for the logs - Alloy will read from here later
   volumes {
-    volume_name    = docker_volume.waf_logs.name
+    volume_name    = docker_volume.lab_logs.name
     container_path = "/var/log/nginx"
   }
 }
@@ -175,10 +188,10 @@ resource "docker_container" "alloy" {
     "/etc/alloy/config.alloy"
   ]
 
-  # Read Nginx logs from the shared named volume
+  # Read Nginx and MySQL logs from the shared named volume
   volumes {
-    volume_name    = docker_volume.waf_logs.name
-    container_path = "/var/log/waf"
+    volume_name    = docker_volume.lab_logs.name
+    container_path = "/var/log/lab"
     read_only      = true
   }
 

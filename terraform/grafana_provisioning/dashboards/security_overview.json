@@ -15,13 +15,13 @@
   "panels": [
     {
       "id": 1,
-      "title": "Volume de logs WAF",
+      "title": "WAF Log Volume",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
       "targets": [
         {
           "expr": "count_over_time({job=\"waf\"} [$__interval])",
-          "legendFormat": "Tous les logs"
+          "legendFormat": "All logs"
         }
       ],
       "fieldConfig": {
@@ -43,17 +43,17 @@
           "placement": "bottom"
         }
       },
-      "description": "Volume total de requêtes passant par le WAF dans le temps"
+      "description": "Total volume of requests passing through the WAF over time"
     },
     {
       "id": 2,
-      "title": "Requêtes bloquées (403)",
+      "title": "Blocked Requests (403)",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "targets": [
         {
           "expr": "count_over_time({job=\"waf\"} |= \"403\" [$__interval])",
-          "legendFormat": "403 bloqués"
+          "legendFormat": "Blocked 403 requests"
         }
       ],
       "fieldConfig": {
@@ -77,11 +77,11 @@
           "placement": "bottom"
         }
       },
-      "description": "Requêtes bloquées par le WAF (HTTP 403)"
+      "description": "Requests blocked by the WAF (HTTP 403)"
     },
     {
       "id": 3,
-      "title": "Top URIs attaquées",
+      "title": "Top attacked",
       "type": "barchart",
       "gridPos": { "h": 10, "w": 24, "x": 0, "y": 8 },
       "targets": [
@@ -120,7 +120,7 @@
           "placement": "bottom"
         }
       },
-      "description": "Top 10 des URI les plus ciblées par des attaques bloquées"
+      "description": "Top 10 of the most attacks URI and blocked attacks"
     }
   ]
 }
