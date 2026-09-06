@@ -75,6 +75,11 @@ resource "docker_container" "mysql" {
     name = docker_network.devsecops_net.name
   }
 
+  ports {
+    internal = 3306
+    external = 3306
+  }
+
   env = [
     "MYSQL_ROOT_PASSWORD=${var.mysql_root_password}",
     "MYSQL_DATABASE=juiceshop",
