@@ -1,74 +1,65 @@
-# 🛡️ DevSecOps Web Lab
+#  DevSecOps-Web Lab
+<div align="center">
 
-[![Terraform](https://img.shields.io/badge/IaC-Terraform-844FBA?logo=terraform)](https://www.terraform.io/)
-[![Ansible](https://img.shields.io/badge/Config-Ansible-EE0000?logo=ansible)](https://www.ansible.com/)
-[![OWASP](https://img.shields.io/badge/WAF-OWASP%20CRS-000000?logo=owasp)](https://coreruleset.org/)
-[![Grafana](https://img.shields.io/badge/Monitoring-Grafana%2BLoki-F46800?logo=grafana)](https://grafana.com/)
-[![MySQL](https://img.shields.io/badge/DB-MySQL%208.0-4479A1?logo=mysql)](https://www.mysql.com/)
-[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+[![Terraform](https://img.shields.io/badge/IaC-Terraform-844FBA?logo=terraform)](https://www.terraform.io/) [![Ansible](https://img.shields.io/badge/Config-Ansible-EE0000?logo=ansible)](https://www.ansible.com/) [![OWASP](https://img.shields.io/badge/WAF-OWASP%20CRS-000000?logo=owasp)](https://coreruleset.org/) [![Grafana](https://img.shields.io/badge/Monitoring-Grafana%2BLoki-F46800?logo=grafana)](https://grafana.com/) [![MySQL](https://img.shields.io/badge/DB-MySQL%208.0-4479A1?logo=mysql)](https://www.mysql.com/) [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-> **Automated deployment of a secure web stack with WAF, SOC monitoring and kill chain simulation.**
+</div>   
+
+> **An automated deployment of a web stack with WAF, SOC monitoring and kill chain simulation.**
 
 ---
 
 ## 📋 Table of Contents
 
-- [Overview](#-overview)
-- [Architecture](#-architecture)
-- [Tech Stack](#-tech-stack)
-- [Prerequisites](#-prerequisites)
-- [Quick Start](#-quick-start)
-- [Attack Simulation (Kill Chain)](#-attack-simulation-kill-chain)
-- [SOC Monitoring](#-soc-monitoring)
-- [Project Structure](#-project-structure)
-- [Troubleshooting](#-troubleshooting)
-- [Documentation](#-documentation)
+- [DevSecOps-Web Lab](#devsecops-web-lab)
+  - [📋 Table of Contents](#-table-of-contents)
+  - [🎯 Overview](#-overview)
+    - [What the project demonstrates](#what-the-project-demonstrates)
+  - [🏗️ Architecture](#️-architecture)
+  - [⚙️ Tech Stack](#️-tech-stack)
+  - [📦 Prerequisites](#-prerequisites)
+  - [🚀 Quick Start](#-quick-start)
+    - [Service Access](#service-access)
+  - [⚔️ Attack Simulation (Kill Chain)](#️-attack-simulation-kill-chain)
+    - [Expected Result](#expected-result)
+  - [📊 SOC Monitoring](#-soc-monitoring)
+    - [Grafana Dashboard](#grafana-dashboard)
+    - [LogQL Queries Used](#logql-queries-used)
+    - [Log Pipeline](#log-pipeline)
+  - [📁 Project Structure](#-project-structure)
+  - [🔧 Troubleshooting](#-troubleshooting)
+  - [📚 Documentation](#-documentation)
+  - [🧪 Project is complete. Possible improvements](#-project-is-complete-possible-improvements)
+  - [📄 License](#-license)
 
 ---
 
 ## 🎯 Overview
 
-This DevSecOps lab deploys a complete web infrastructure **100% locally** with **Docker/Podman**, secured by a **WAF (ModSecurity + OWASP CRS)**, supervised by a **Grafana/Loki stack**, and tested by **attack simulations** covering OWASP Top 10 2025.
+This lab deploys a complete intentionnaly vulnerable web infrastructure **100% locally** with **Podman**, behind a **WAF (ModSecurity + OWASP CRS)**, supervised by a **Grafana/Loki stack**, and tested by **attack simulations** covering **OWASP Top 10 2025**.
 
-**Portfolio Objective for SOC Analyst**: demonstrate the ability to deploy, configure, attack, detect and remediate security incidents in a containerized environment.
+**Objective**: This project was built to demonstrate the ability to deploy, configure, attack, detect and remediate web security incidents in a containerized environment.
 
 ### What the project demonstrates
 
-- ✅ **Complete IaC**: Terraform + Ansible, everything is versioned and reproducible
-- ✅ **Production WAF**: 846 OWASP CRS rules, effective blocking (403)
-- ✅ **MySQL Hardening**: Password policy, SSL/TLS, least privilege
-- ✅ **SOC Monitoring**: Grafana dashboard with real-time LogQL queries
-- ✅ **Realistic Kill Chain**: Reconnaissance → SQLi → XSS → Path Traversal
-- ✅ **Secret Management**: Sensitive variables encrypted with Ansible Vault
-- ✅ **Documented Troubleshooting**: 12 real problems with Root Cause Analysis
+- **Complete IaC**: With `Terraform + Ansible`, everything is versioned and reproducible
+- **Production WAF**: 846 OWASP CRS rules, effective blocking
+- **MySQL Hardening**: Password policy, SSL/TLS, least privilege
+- **SOC Monitoring**: Grafana dashboard with real-time LogQL queries
+- **Realistic Kill Chain**: Reconnaissance → SQLi → XSS → Path Traversal
+- **Secret Management**: Sensitive variables encrypted with Ansible Vault
+- **Documented Troubleshooting**: 12 real problems with Root Cause Analysis
+- **Documented attacks**: all atacks are all documented on the way they were done and what was seen.
 
 ---
 
 ## 🏗️ Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                        Linux Host (Podman)                       │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │                    devsecops-net                            │  │
-│  │                                                             │  │
-│  │  ┌──────────┐    ┌──────────────┐    ┌────────────────┐    │  │
-│  │  │          │    │              │    │                │    │  │
-│  │  │  WAF     │───>│  Juice Shop  │───>│    MySQL 8.0   │    │  │
-│  │  │  :8080   │    │  :3000       │    │    :3306       │    │  │
-│  │  │  Nginx + │    │  (vulnerable)│    │    (hardened)  │    │  │
-│  │  │  ModSec  │    │              │    │                │    │  │
-│  │  └────┬─────┘    └──────────────┘    └────────────────┘    │  │
-│  │       │                                                     │  │
-│  │  ┌────▼─────┐    ┌──────────────┐    ┌────────────────┐    │  │
-│  │  │ Promtail │───>│    Loki      │<───│    Grafana     │    │  │
-│  │  │(:inside) │    │   :3100      │    │   :3001        │    │  │
-│  │  └──────────┘    └──────────────┘    └────────────────┘    │  │
-│  └────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────┘
-```
+Here is a very simplified version of the architecture but it explains briefly well the data flow between all the components of the projects.
 
-*Detailed diagram with Mermaid: [docs/architecture.md](docs/architecture.md)*
+![simplified-architecture](docs/architecture-simplified.png)
+
+*The detailed diagram with explanation about the small parts, data flow and role of every component can be found at  [docs/architecture.md](docs/architecture.md)*
 
 ---
 
@@ -76,13 +67,13 @@ This DevSecOps lab deploys a complete web infrastructure **100% locally** with *
 
 | Domain | Technology | Version |
 |--------|-------------|---------|
-| **Infrastructure as Code** | Terraform + Provider Docker | ~> 3.0 |
+| **Infrastructure as Code** | Terraform + Docker Provider| ~> 3.0 |
 | **Configuration Management** | Ansible + Ansible Vault | Latest |
 | **Containerization** | Podman (rootless) | Latest |
 | **Target Application** | OWASP Juice Shop | latest |
 | **WAF** | Nginx + ModSecurity 3 + OWASP CRS | 1.30.1 / 3.0.15 |
 | **Database** | MySQL 8.0 | 8.0 |
-| **Monitoring** | Grafana + Loki + Promtail | 13.0.2 / latest |
+| **Monitoring** | Grafana + Loki + Alloy | 13.0.2 / latest |
 | **Attack Simulation** | SQLMap + Nmap | Latest |
 
 ---
@@ -93,13 +84,15 @@ This DevSecOps lab deploys a complete web infrastructure **100% locally** with *
 - **Podman** (or Docker) with socket enabled
 - **Terraform** ≥ 1.5
 - **Ansible** ≥ 2.15
-- **Python 3** + pip/pipx
+- **Kali VM** ready to go
 
 Automated installation:
+If one or nothing of these ones are installed you can run
 
 ```bash
-chmod +x tests.sh && ./tests.sh
+make install
 ```
+and everything will be setup correctly
 
 ---
 
@@ -156,7 +149,7 @@ The script executes 5 phases covering the **OWASP Top 10 2025**:
   Payload : script alert → HTTP 403   ← WAF blocks
 ```
 
-![SQLi blocked](docs/evidences/Sqli-bloque.png)
+![SQLi blocked](docs/evidences/bunch/Sqli-bloque.png)
 
 ---
 
@@ -183,7 +176,7 @@ count_over_time({job="waf"} |= "403" [$__interval])
 topk(10, sum by (uri) (count_over_time({job="waf"} |= "403" | json | __error__="" [$__interval])))
 ```
 
-![LogQL Queries](docs/evidences/queries-presents.png)
+![LogQL Queries](docs/evidences/bunch/bunch/queries-presents.png)
 
 ### Log Pipeline
 
@@ -191,7 +184,7 @@ topk(10, sum by (uri) (count_over_time({job="waf"} |= "403" | json | __error__="
 WAF (Nginx logs JSON) → waf-logs volume → Promtail → Loki → Grafana
 ```
 
-![Valid Pipeline](docs/evidences/pipeline-valide.png)
+![Valid Pipeline](docs/evidences/bunch/pipeline-valide.png)
 
 ---
 
@@ -237,7 +230,7 @@ devsecops-web-lab/
 │   ├── incident-report.md            # SOC incident report
 │   ├── ISSUES.md                     # Troubleshooting (12 problems)
 │   ├── Resources.md                  # Documentation and references
-│   └── evidences/                    # Screenshots
+│   └── evidences/bunch/                    # Screenshots
 │       ├── Sqli-bloque.png
 │       ├── Containers.png
 │       ├── pipeline-valide.png
@@ -268,6 +261,8 @@ devsecops-web-lab/
 | 11 | Grafana provisioning failed | Manual datasource configuration |
 | 12 | WAF blocks nothing (200 instead of 403) | `SecRuleEngine On` + `SecDefaultAction deny` |
 
+Feel free to update this if you encounter any problem.
+
 ---
 
 ## 📚 Documentation
@@ -292,7 +287,7 @@ devsecops-web-lab/
 
 ## 📄 License
 
-MIT — see [LICENSE](LICENSE) file.
+MIT - see [LICENSE](LICENSE) file.
 
 ---
 
