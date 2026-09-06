@@ -42,7 +42,7 @@ A Named Volume is managed entirely by the Docker/Podman daemon, stored in a dedi
 
 ### With native Docker?
 If we had used Docker (in root daemon mode) instead of Podman, **the problem would have been similar, though sometimes masked**.
-On a purely Linux system, the error would have been exactly the same because UID 101 remains UID 101. However, if we had used Docker Desktop (on Windows or macOS), the intermediate VM (WSL2 or HyperKit) often dynamically adjusts Bind Mount permissions on the fly. This hides errors and gives a false sense of security, but the code would fail brutally once deployed on a real production Linux server! Being on Linux/Podman forced you to adopt the robust solution from day one.
+On a purely Linux system, the error would have been exactly the same because UID 101 remains UID 101. However, if we had used Docker Desktop (on Windows or macOS), the intermediate VM (WSL2 or HyperKit) often dynamically adjusts Bind Mount permissions on the fly. This hides errors and gives a false sense of security, but the code would fail brutally once deployed on a real production Linux server! Being on Linux/Podman forced me to adopt the robust solution from day one.
 
 ---
 
@@ -86,7 +86,7 @@ The behavior would have been **strictly identical** with any version of Docker. 
 - Validation: `curl -s http://localhost:8080 | grep -i "juice"` ✅
 - `podman ps`: 5 containers Up ✅
 
-![Running Containers](./evidences/Containers.png)
+![Running Containers](./evidences/bunch/Containers.png)
 
 ---
 
@@ -123,7 +123,7 @@ A 100% containerized architecture quickly reveals hidden prerequisites of Config
 
 ![Successful pings](./evidences/ping-reussi.png)
 
-## 4. WAF | Playbook: Nginx syntax error in `nginx.conf` — `invalid number of arguments in proxy_pass`
+## 4. WAF | Playbook: Nginx syntax error in `nginx.conf` - `invalid number of arguments in proxy_pass`
 
 ### The exact problem
 After the first `ansible-playbook waf-setup.yml`, the `Reload Nginx` handler triggered a fatal error preventing the config from being applied:
@@ -200,7 +200,7 @@ Grouping system dependency installations in a single `package` task with a list 
 
 ---
 
-## 7. WAF | Playbook: Nginx logs symlinked to `/dev/stdout` — Promtail can't read them
+## 7. WAF | Playbook: Nginx logs symlinked to `/dev/stdout` - Promtail can't read them
 
 ### The exact problem
 During validation tests, the command `podman exec waf cat /var/log/nginx/access.log` hung indefinitely and returned nothing. Inspecting the directory revealed:
@@ -209,7 +209,7 @@ podman exec waf ls -la /var/log/nginx/
 # lrwxrwxrwx. root root 11 May 19  access.log -> /dev/stdout
 # lrwxrwxrwx. root root 11 May 19  error.log -> /dev/stderr
 ```
-Promtail tried to "read" a file that was only a symbolic link to the container's standard output — a write-only pseudo-file. It could therefore never send a single log to Loki.
+Promtail tried to "read" a file that was only a symbolic link to the container's standard output - a write-only pseudo-file. It could therefore never send a single log to Loki.
 
 ### How the problem was identified
 This is a very common Docker convention: by default, images redirect application logs to `stdout/stderr` so the Docker (or Podman) daemon can collect them via `docker logs`. This is an excellent reflex for classic deployment, but it's **incompatible with a file collection agent** like Promtail, which needs real files to "tail".
@@ -251,7 +251,7 @@ podman exec waf pgrep -a promtail
 
 ---
 
-## 8. DB | Playbook: Incorrect MySQL password in vault — `Access denied for user 'root'`
+## 8. DB | Playbook: Incorrect MySQL password in vault - `Access denied for user 'root'`
 
 ### The exact problem
 During the first execution of the `db-hardening.yml` playbook, the task to remove anonymous users failed immediately:
@@ -279,7 +279,7 @@ Terraform secrets and Ansible secrets are two distinct systems. **You must ensur
 
 ---
 
-## 9. DB | Playbook: `audit_log` plugin missing — MySQL Community Edition
+## 9. DB | Playbook: `audit_log` plugin missing - MySQL Community Edition
 
 ### The exact problem
 The task to install the audit plugin failed with a missing shared library error:
@@ -371,15 +371,15 @@ The `/etc/grafana/provisioning/datasources/` folder is not readable from the Gra
 Manual configuration of the Loki datasource via Grafana UI (URL: http://loki:3100). The datasource is persisted in Grafana's internal volume.
 
 ### Impact
-Minor — the datasource is configured and functional. The `loki_datasource.yml` file remains in the repo for documentation but is not automatically loaded with Podman rootless.
+Minor - the datasource is configured and functional. The `loki_datasource.yml` file remains in the repo for documentation but is not automatically loaded with Podman rootless.
 
 ---
 
-## 12. WAF: All requests pass as HTTP 200 — WAF blocks nothing
+## 12. WAF: All requests pass as HTTP 200 - WAF blocks nothing
 
 ### The exact problem
 
-After complete deployment (Terraform + Ansible), the WAF was operational and logs were flowing well into Grafana/Loki. However, when running the attack simulation script (`simulate_killchain.sh`), **all malicious requests received HTTP 200 OK**. SQL injections, XSS, path traversals — nothing was blocked. The WAF acted as a simple pass-through reverse proxy.
+After complete deployment (Terraform + Ansible), the WAF was operational and logs were flowing well into Grafana/Loki. However, when running the attack simulation script (`simulate_killchain.sh`), **all malicious requests received HTTP 200 OK**. SQL injections, XSS, path traversals - nothing was blocked. The WAF acted as a simple pass-through reverse proxy.
 
 Inspecting logs in Grafana showed requests with `200` status, as if no security rule had been triggered.
 
@@ -387,21 +387,21 @@ Inspecting logs in Grafana showed requests with `200` status, as if no security 
 
 Diagnosis followed a systematic approach, tracing the chain of responsibility:
 
-#### Step 1 — Verifying CRS rules were loaded
+#### Step 1 - Verifying CRS rules were loaded
 ```bash
 podman logs waf 2>&1 | grep "rules loaded"
 # → ModSecurity-nginx v1.0.4 (rules loaded inline/local/remote: 0/846/0)
 ```
-846 rules loaded — this wasn't a problem of missing rules.
+846 rules loaded - this wasn't a problem of missing rules.
 
-#### Step 2 — Checking ModSecurity engine mode
+#### Step 2 - Checking ModSecurity engine mode
 ```bash
 podman exec waf env | grep MODSEC_RULE_ENGINE
 # → MODSEC_RULE_ENGINE=DetectionOnly
 ```
 **First alert**: the engine was running in `DetectionOnly` mode. This mode specifies that ModSecurity should analyze traffic and log alerts, but **never block a request**, even if a rule is violated.
 
-#### Step 3 — Tracing the actual config path loaded by Nginx
+#### Step 3 - Tracing the actual config path loaded by Nginx
 ```bash
 podman exec waf grep -r "modsecurity_rules_file" /etc/nginx/
 # → /etc/nginx/conf.d/modsecurity.conf:
@@ -429,7 +429,7 @@ podman exec waf grep SecRuleEngine /etc/modsecurity.d/modsecurity.conf
 # → SecRuleEngine DetectionOnly    ← never touched by Ansible!
 ```
 
-#### Step 4 — Analyzing CRS default actions
+#### Step 4 - Analyzing CRS default actions
 Even after fixing `SecRuleEngine On`, attacks still weren't blocked. Inspecting the `SecDefaultAction` in the CRS revealed the root cause:
 
 ```bash
@@ -438,13 +438,13 @@ podman exec waf grep "SecDefaultAction" /etc/modsecurity.d/owasp-crs/crs-setup.c
 # → SecDefaultAction "phase:2,pass,log,tag:'modsecurity'"
 ```
 
-**Third alert**: the CRS default actions were configured in `pass` mode. This means even if a rule detects an attack (incrementing the anomaly score), the final action was `pass` (forward the request) instead of `deny` (block with a 403). This is the intentional default behavior of the `crs-setup.conf` file shipped with the image — a deliberate choice by developers to let users explicitly define their blocking policy.
+**Third alert**: the CRS default actions were configured in `pass` mode. This means even if a rule detects an attack (incrementing the anomaly score), the final action was `pass` (forward the request) instead of `deny` (block with a 403). This is the intentional default behavior of the `crs-setup.conf` file shipped with the image - a deliberate choice by developers to let users explicitly define their blocking policy.
 
 ### The Solution
 
 **3 corrections were applied:**
 
-#### 1. Terraform — Container environment variable
+#### 1. Terraform - Container environment variable
 The pass-through mode was also hard-coded in Terraform provisioning, making the container's initial configuration systematically `DetectionOnly`:
 
 ```hcl
@@ -463,7 +463,7 @@ env = [
 
 This environment variable is used by the startup template of the CRS image (`/etc/nginx/templates/modsecurity.d/modsecurity.conf.template`) which generates the initial configuration at container startup. By passing `On` directly, the container is born directly in blocking mode.
 
-#### 2. Ansible — Correcting the modsecurity.conf file path
+#### 2. Ansible - Correcting the modsecurity.conf file path
 The `waf-setup.yml` playbook was corrected to target the correct file:
 
 ```yaml
@@ -482,7 +482,7 @@ The `waf-setup.yml` playbook was corrected to target the correct file:
     line: 'SecRuleEngine On'
 ```
 
-#### 3. Ansible — Forcing blocking in CRS default actions
+#### 3. Ansible - Forcing blocking in CRS default actions
 A new task was added to override the `SecDefaultAction` pass → deny in `crs-setup.conf`:
 
 ```yaml
@@ -526,7 +526,7 @@ podman exec waf grep SecDefaultAction /etc/modsecurity.d/owasp-crs/crs-setup.con
 
 ### Why this solution and what to remember
 
-This problem perfectly illustrates the difference between a WAF in **Detection** mode and a WAF in **Prevention** mode — a fundamental security concept:
+This problem perfectly illustrates the difference between a WAF in **Detection** mode and a WAF in **Prevention** mode - a fundamental security concept:
 
 | Mode | Behavior | Usage |
 |------|----------|-------|
