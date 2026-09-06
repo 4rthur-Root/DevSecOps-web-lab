@@ -1,22 +1,12 @@
 ---
-# Playbook pour le monitoring
-# Ici Promtail va récupérer les logs du WAF et les envoyer à Loki
-# Grafana me les affichera ensuite dans un dashboard
-- name: "Monitoring | Vérification pipeline Promtail → Loki"
+# Monitoring Pipeline Verification Playbook
+# Verifies that WAF writes JSON logs to /var/log/nginx/access.log,
+# generates test traffic, and ensures Loki is accessible.
+- name: "Monitoring | Verification pipeline Alloy → Loki"
   hosts: waf
   gather_facts: false
 
   tasks:
-
-    - name: "MON | Vérifier que Promtail tourne"
-      shell: pgrep -f promtail
-      register: promtail_pid
-      changed_when: false
-      failed_when: promtail_pid.rc != 0
-
-    - name: "MON | Afficher le PID de Promtail"
-      debug:
-        msg: "Promtail actif — PID : {{ promtail_pid.stdout }}"
 
     - name: "MON | Vérifier que le fichier de log WAF existe et n'est pas vide"
       stat:

@@ -1,30 +1,43 @@
 ---
-- name: Configurations du WAF (Nginx + ModSecurity + Logs JSON)
+# This file deploys nginx.conf,
+# activates the block in ModSecurity (SecRuleEngine On), c
+# configures the default action of CRS in reject (SecDefaultAction deny:403), 
+# injects the exclusion rules of the false positives,
+# replaces the symbolic links of logs by true files.
+
+- name: Configurations of WAF (Nginx + ModSecurity + Logs JSON)
   hosts: waf
   gather_facts: true
 
   tasks:
 
-    - name: "WAF | Créer le répertoire de conf Nginx custom"
+    - name: "WAF | Create the conf Nginx custom repertoire"
       file:
         path: /etc/nginx/conf.d
         state: directory
         mode: '0755'
 
-    - name: "WAF | Déployer la config Nginx (reverse proxy + logs JSON)"
+    - name: "WAF | Deploy the Nginx config (reverse proxy + logs JSON)"
       copy:
         src: ../files/waf/nginx.conf
         dest: /etc/nginx/conf.d/default.conf
         mode: '0644'
-      notify: Recharger Nginx
+      notify: Reload Nginx
 
-    - name: "WAF | Activer ModSecurity en mode blocage"
+    - name: "WAF | Replace Nginx log symlinks with real files (for Alloy collection)"
+      shell: |
+        if [ -L /var/log/nginx/access.log ]; then rm /var/log/nginx/access.log && touch /var/log/nginx/access.log; fi
+        if [ -L /var/log/nginx/error.log ]; then rm /var/log/nginx/error.log && touch /var/log/nginx/error.log; fi
+        chown nginx:adm /var/log/nginx/access.log /var/log/nginx/error.log
+      changed_when: false
+
+    - name: "WAF | Activate ModSecurity en block mode"
       lineinfile:
         path: /etc/modsecurity.d/modsecurity.conf
         regexp: '^SecRuleEngine'
         line: 'SecRuleEngine On'
         backup: yes
-      notify: Recharger Nginx
+      notify: Reload Nginx
 
     - name: "WAF | Forcer le blocage (deny 403) dans les actions par défaut du CRS"
       lineinfile:
@@ -35,68 +48,22 @@
       loop:
         - "1"
         - "2"
-      notify: Recharger Nginx
+      notify: Reload Nginx
 
-    - name: "WAF | Déployer les règles d'exception (anti faux positifs)"
+    - name: "WAF | Deploy the exception rules (anti false positives)"
       copy:
         src: ../files/waf/exclusion_rules.conf
         dest: /etc/modsecurity.d/exclusion_rules.conf
         mode: '0644'
-      notify: Recharger Nginx
+      notify: Reload Nginx
 
-    - name: "WAF | Inclure les règles d'exception dans setup.conf"
+    - name: "WAF | Include the exception rules in setup.conf"
       lineinfile:
         path: /etc/modsecurity.d/setup.conf
         line: 'Include /etc/modsecurity.d/exclusion_rules.conf'
         state: present
-      notify: Recharger Nginx
-
-    - name: "WAF | Installer Promtail (collecteur de logs)"
-      block:
-        - name: Télécharger Promtail
-          get_url:
-            url: "https://github.com/grafana/loki/releases/download/v3.0.0/promtail-linux-amd64.zip"
-            dest: /tmp/promtail.zip
-            mode: '0644'
-
-        - name: "WAF | Remplacer les symlinks de logs Nginx par de vrais fichiers (pour Promtail)"
-          shell: |
-            if [ -L /var/log/nginx/access.log ]; then rm /var/log/nginx/access.log && touch /var/log/nginx/access.log; fi
-            if [ -L /var/log/nginx/error.log ]; then rm /var/log/nginx/error.log && touch /var/log/nginx/error.log; fi
-            chown nginx:adm /var/log/nginx/access.log /var/log/nginx/error.log
-          changed_when: false
-
-        - name: Télécharger "unzip" et "procps" (pour pkill)
-          package:
-            name: 
-              - unzip
-              - procps
-            state: present
-
-        - name: Décompresser Promtail
-          unarchive:
-            src: /tmp/promtail.zip
-            dest: /usr/local/bin/
-            remote_src: yes
-            mode: '0755'
-
-        - name: Renommer le binaire
-          command: mv /usr/local/bin/promtail-linux-amd64 /usr/local/bin/promtail
-          args:
-            creates: /usr/local/bin/promtail
-
-    - name: "WAF | Déployer la config Promtail"
-      copy:
-        src: ../files/promtail/config.yml
-        dest: /etc/promtail-config.yml
-        mode: '0644'
-
-    - name: "WAF | Lancer Promtail en arrière-plan"
-      shell: |
-        pkill promtail || true
-        nohup /usr/local/bin/promtail -config.file=/etc/promtail-config.yml > /tmp/promtail.log 2>&1 &
-      changed_when: true
+      notify: Reload Nginx
 
   handlers:
-    - name: Recharger Nginx
+    - name: Reload Nginx
       command: nginx -s reload

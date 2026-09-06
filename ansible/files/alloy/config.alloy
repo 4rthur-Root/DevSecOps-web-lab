@@ -1,0 +1,37 @@
+// ============================================================================
+// Grafana Alloy Configuration — WAF Log Ingestion Pipeline
+// ============================================================================
+// Alloy replaces Promtail as the unified observability collector.
+// It watches the shared 'waf-logs' volume, tails Nginx access and error logs,
+// and pushes them in real-time to the Loki log aggregator.
+// ============================================================================
+
+// 1. Discover log files inside the mounted waf-logs volume
+local.file_match "waf_logs" {
+  path_targets = [
+    {
+      __path__  = "/var/log/waf/access.log",
+      job       = "waf",
+      container = "waf",
+    },
+    {
+      __path__  = "/var/log/waf/error.log",
+      job       = "waf_errors",
+      container = "waf",
+    },
+  ]
+  sync_period = "5s"
+}
+
+// 2. Read and tail discovered log files
+loki.source.file "waf_scraper" {
+  targets    = local.file_match.waf_logs.targets
+  forward_to = [loki.write.loki_endpoint.receiver]
+}
+
+// 3. Export collected logs to Loki over the internal Docker network
+loki.write "loki_endpoint" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

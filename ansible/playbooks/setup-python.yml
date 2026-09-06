@@ -1,16 +1,18 @@
-# Playbook de bootstrap (préparation des hôtes)
+# Bootstrap playbook
+# This file prepares the targets for ansible provisioning by installing python properly,
+# Because they come in a minimalist form.
 ---
-- name: Installer Python sur les conteneurs pour permettre l'exécution d'Ansible
+- name: Install Python on the containers to allow Ansible execution 
   hosts: all
-  gather_facts: false # Ansible ne récolte rien (IMPORTANT!)
+  gather_facts: false # Ansible does not collect anything (VERY IMPORTANT !!)
   tasks:
-    - name: Installer Python3 sur les conteneurs basés sur Debian (WAF)
+    - name: Install Python3 on the containers based on Debian (WAF)
       raw: apt-get update && apt-get install -y python3
       when: inventory_hostname in groups['waf_servers'] # Waf only
-      changed_when: false # Pollution maîtrisée
+      changed_when: false # 
       
 
-    - name: Installer Python3 sur les conteneurs basés sur Oracle Linux (MySQL)
+    - name: Install Python3 on the containers based on Oracle Linux (MySQL)
       raw: microdnf install -y python3
       when: inventory_hostname in groups['db_servers']
       changed_when: false

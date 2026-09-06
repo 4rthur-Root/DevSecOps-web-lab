@@ -1,15 +1,15 @@
 ---
-# Playbook Maître - DevSecOps Web Lab
-# Ordre d'exécution : Bootstrap → WAF → DB → Monitoring
+# This is the master playbook that launches the other playbooks in the good order.
+# Execution order : Bootstrap → WAF → DB → Monitoring
 
-- name: "PHASE 0 | Bootstrap - Installation de Python sur les cibles"
+- name: "PHASE 0 | Bootstrap - Python installation on the targets"
   import_playbook: setup-python.yml
 
-- name: "PHASE 1 | WAF - Configuration Nginx + ModSecurity + Promtail"
+- name: "PHASE 1 | WAF - Nginx + ModSecurity Configuration"
   import_playbook: waf-setup.yml
 
 - name: "PHASE 2 | Database - Hardening MySQL"
   import_playbook: db-hardening.yml
 
-- name: "PHASE 3 | Monitoring - Vérification pipeline Promtail → Loki"
+- name: "PHASE 3 | Monitoring - Verification of the pipeline Alloy → Loki"
   import_playbook: monitoring.yml
