@@ -16,3 +16,6 @@ ansible/group_vars/all/vault.yml
 # Personal files
 plan.txt
 continuer.txt
+
+# Draw.io
+.$*
