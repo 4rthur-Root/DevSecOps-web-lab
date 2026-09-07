@@ -1,31 +1,41 @@
 // ============================================================================
-// Grafana Alloy Configuration — WAF Log Ingestion Pipeline
+// Grafana Alloy Configuration — WAF & Database Log Ingestion Pipeline
 // ============================================================================
 // Alloy replaces Promtail as the unified observability collector.
-// It watches the shared 'waf-logs' volume, tails Nginx access and error logs,
-// and pushes them in real-time to the Loki log aggregator.
+// It watches the shared 'lab_logs' volume mounted at /var/log/lab, tails Nginx
+// and MySQL logs, and pushes them in real-time to the Loki log aggregator.
 // ============================================================================
 
-// 1. Discover log files inside the mounted waf-logs volume
-local.file_match "waf_logs" {
+// 1. Discover log files inside the mounted shared volume
+local.file_match "logs" {
   path_targets = [
     {
-      __path__  = "/var/log/waf/access.log",
+      __path__  = "/var/log/lab/access.log",
       job       = "waf",
       container = "waf",
     },
     {
-      __path__  = "/var/log/waf/error.log",
+      __path__  = "/var/log/lab/error.log",
       job       = "waf_errors",
       container = "waf",
+    },
+    {
+      __path__  = "/var/log/lab/mysql_error.log",
+      job       = "mysql_errors",
+      container = "mysql-db",
+    },
+    {
+      __path__  = "/var/log/lab/mysql_queries.log",
+      job       = "mysql_queries",
+      container = "mysql-db",
     },
   ]
   sync_period = "5s"
 }
 
 // 2. Read and tail discovered log files
-loki.source.file "waf_scraper" {
-  targets    = local.file_match.waf_logs.targets
+loki.source.file "log_scraper" {
+  targets    = local.file_match.logs.targets
   forward_to = [loki.write.loki_endpoint.receiver]
 }
 

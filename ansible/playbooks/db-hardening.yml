@@ -75,11 +75,12 @@
         create: true
         backup: true
       loop:
-        - { regexp: '^bind-address', line: 'bind-address = 127.0.0.1' }
+        - { regexp: '^bind-address', line: 'bind-address = 0.0.0.0' }
         - { regexp: '^max_connections', line: 'max_connections = 100' }
         - { regexp: '^max_connect_errors', line: 'max_connect_errors = 10' }
-        - { regexp: '^log_error', line: 'log_error = /var/log/mysql/error.log' }
-        - { regexp: '^general_log', line: 'general_log = 0' }
+        - { regexp: '^log_error', line: 'log_error = /var/log/mysql/mysql_error.log' }
+        - { regexp: '^general_log_file', line: 'general_log_file = /var/log/mysql/mysql_queries.log' }
+        - { regexp: '^general_log', line: 'general_log = 1' }
         - { regexp: '^secure-file-priv', line: 'secure-file-priv = /var/lib/mysql-files' }
         - { regexp: '^sql_mode', line: 'sql_mode = STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION' }
         - { regexp: '^local-infile', line: 'local-infile = 0' }

@@ -8,7 +8,7 @@
 
   tasks:
 
-    - name: "MON | Vérifier que le fichier de log WAF existe et n'est pas vide"
+    - name: "MON | Verify logs file is accessible and not empty"
       stat:
         path: /var/log/nginx/access.log
       register: log_file
@@ -27,16 +27,16 @@
       changed_when: false
       failed_when: false
 
-    - name: "MON | Lire les 3 dernières lignes du log (vérification JSON)"
+    - name: "MON | Read the last 3 lines of the logs (JSON verification)"
       command: tail -3 /var/log/nginx/access.log
       register: last_logs
       changed_when: false
 
-    - name: "MON | Afficher les derniers logs"
+    - name: "MON | Shows the last logs"
       debug:
         var: last_logs.stdout_lines
 
-    - name: "MON | Vérifier que Loki est joignable depuis le WAF"
+    - name: "MON | Verifiy Loki is accessible from the WAF"
       uri:
         url: "http://loki:3100/ready"
         method: GET
@@ -45,6 +45,6 @@
       changed_when: false
       failed_when: false
 
-    - name: "MON | Statut Loki"
+    - name: "MON | Loki Statut"
       debug:
         msg: "Loki status : {{ loki_health.status | default('UNREACHABLE') }}"
