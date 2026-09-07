@@ -362,16 +362,42 @@ The password is managed via **Ansible Vault** (`vault.yml`) for the configuratio
 
 ---
 
-## 11. Grafana: Automatic provisioning fails (Permission denied)
+## 11. Grafana: Automatic provisioning fails under Podman rootless (Permission denied)
 
-### Problem
-The `/etc/grafana/provisioning/datasources/` folder is not readable from the Grafana container with Podman rootless.
+### The exact problem
+During the initial deployment under Podman rootless, Grafana started up but failed to automatically register the Loki datasource and the security dashboards. Inspecting the logs (`podman logs grafana`) showed that Grafana could not read the mounted provisioning directories:
+```
+logger=provisioning.datasources t=... level=error msg="Failed to read provisioning files" error="open /etc/grafana/provisioning/datasources: permission denied"
+logger=provisioning.dashboards t=... level=error msg="Failed to read provisioning files" error="open /etc/grafana/provisioning/dashboards: permission denied"
+```
 
-### Workaround
-Manual configuration of the Loki datasource via Grafana UI (URL: http://loki:3100). The datasource is persisted in Grafana's internal volume.
+### How the problem was identified (Root Cause Analysis)
+Ater research I discovered that the official `grafana/grafana` container does not run as `root`; it executes as the unprivileged user `grafana` with **UID 472** (GID 472).
+In standard Docker (daemon running as root), bind-mounted host folders owned by UID 1000 can usually be traversed if permissions allow. However, under **Podman in rootless mode**, user namespace remapping (*subuid/subgid*) maps host UID 1000 to container UID 0 (root). Inside the container, UID 472 maps to an unmapped host subuid.
+Consequently, unless the host directory explicitly grants **read and execute (directory traversal)** permissions to all users (`other`), the internal user (UID 472) receives an `EACCES: Permission denied` error when trying to traverse and read `/etc/grafana/provisioning/`.
 
-### Impact
-Minor - the datasource is configured and functional. The `loki_datasource.yml` file remains in the repo for documentation but is not automatically loaded with Podman rootless.
+### The Solution: Automated Directory Traversal & Read Permissions
+Rather than falling back to manual UI configuration, we resolved the permission issue at its root by granting explicit recursive read and directory execution permissions (`chmod -R a+rX`) to the provisioning folder on the host:
+```bash
+chmod -R a+rX terraform/grafana_provisioning
+```
+- The `+r` flag ensures all YAML and JSON files are readable by any UID (including UID 472).
+- The `+X` flag (capital X) ensures that directories receive execute permissions (allowing UID 472 to enter and traverse the folder hierarchy) without mistakenly adding execute bits to regular files.
+
+This command is now embedded directly into the deployment pipeline in the [`Makefile`](../Makefile):
+```makefile
+deploy:
+	@echo "Setting Grafana provisioning directory traversal permissions (Issue 11)..."
+	@chmod -R a+rX terraform/grafana_provisioning
+	@terraform -chdir=terraform init
+	@terraform -chdir=terraform apply
+```
+
+### Result & Validation
+With these permissions in place, Grafana starts up and automatically ingests:
+1. `loki_datasource.yml` ➔ Instantly establishes the connection to `http://loki:3100`.
+2. `dashboard_provider.yml` & `security_overview.json` ➔ Instantly compiles and displays the **Security Overview** dashboard.
+Zero manual clicking in the Grafana UI is required; the setup is 100% automated and GitOps-compliant.
 
 ---
 

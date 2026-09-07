@@ -6,6 +6,7 @@
 
 ## Table of Contents
 
+- [Stack Overflow](https://stackoverflow.com/questions/52059109/how-to-have-root-permission-in-the-grafana-docker-container) To help find a way to resolve [ISSUE 11](./ISSUES.md#11-grafana-automatic-provisioning-fails-under-podman-rootless-permission-denied) 
 - [DevOps Security Lab - Resources \& References](#devops-security-lab---resources--references)
   - [Table of Contents](#table-of-contents)
   - [🔗 Inspiration Resources](#-inspiration-resources)
