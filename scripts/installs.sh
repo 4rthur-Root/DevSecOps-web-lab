@@ -1,4 +1,4 @@
-#!usr/bin/env bash
+#!/usr/bin/env bash
 # This script installs the necessary tools for the DevSecOps Lab environment.
 # Tools: Ansible, Terraform, Podman.
 
