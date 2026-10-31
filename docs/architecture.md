@@ -1,6 +1,6 @@
 # DevSecOps Lab Architecture
 
-![DevSecOps Lab Architecture](architecture.png)
+![DevSecOps Lab Architecture](./diagrams/architecture.png)
 
 ## Architecture Overview
 

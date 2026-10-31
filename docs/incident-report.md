@@ -1,6 +1,6 @@
-# Security Incident Report — DevSecOps Web Lab
+# Security Incident Report - DevSecOps Web Lab
 **Date :** 2026-06-18  
-**Analyst :** KPODONOU K. Gaël  
+**Analyst :** Adrien  
 **Severity :** High (controlled simulation)  
 **Status :** Resolved
 
@@ -21,7 +21,7 @@ A kill chain simulation was conducted on the DevSecOps Web Lab infrastructure to
 | MySQL | Database | MySQL 8.0 (hardened) |
 | Loki + Grafana | Log centralization and visualization | Grafana Stack |
 
-Isolated `devsecops-net` network — Juice Shop not exposed directly, only accessible through the WAF on port 8080.
+Isolated `devsecops-net` network - Juice Shop not exposed directly, only accessible through the WAF on port 8080.
 
 ---
 
@@ -47,7 +47,7 @@ Isolated `devsecops-net` network — Juice Shop not exposed directly, only acces
 {job="waf"} |= "403"
 ```
 
-**Observation:** Spike of 403s between 09:44:00 and 09:45:00 exactly matching the attack simulation. All legitimate requests (200) continued to pass normally — no service interruption.
+**Observation:** Spike of 403s between 09:44:00 and 09:45:00 exactly matching the attack simulation. All legitimate requests (200) continued to pass normally - no service interruption.
 
 ---
 
@@ -65,7 +65,7 @@ SecRule REQUEST_URI "@beginsWith /socket.io/" \
     msg:'Exclusion socket.io - legitimate Juice Shop traffic'"
 ```
 
-Deployed via Ansible (`waf-setup.yml`) — idempotent and versioned.
+Deployed via Ansible (`waf-setup.yml`) - idempotent and versioned.
 
 **Post-remediation verification:**
 ```bash

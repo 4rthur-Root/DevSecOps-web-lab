@@ -1,7 +1,7 @@
 // ============================================================================
-// Grafana Alloy Configuration — WAF & Database Log Ingestion Pipeline
+// Grafana Alloy Configuration  WAF & Database Log Ingestion Pipeline
 // ============================================================================
-// Alloy replaces Promtail as the unified observability collector.
+// Alloy replaces the previous used Promtail as the unified observability collector.
 // It watches the shared 'lab_logs' volume mounted at /var/log/lab, tails Nginx
 // and MySQL logs, and pushes them in real-time to the Loki log aggregator.
 // ============================================================================
