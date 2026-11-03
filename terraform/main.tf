@@ -1,3 +1,9 @@
+# Center of the IAC, It describes the final state I want
+# What it does :
+  # 6 podman containers: waf,loki,alloy,mysql,juice shop,grafana.
+  # An isolated network for their communication
+  # A shared unique logs file
+
 # Definition of the Terraform provider and resources.
 terraform {
   required_providers {
@@ -6,14 +12,17 @@ terraform {
       version = "~> 3.0"
     }
   }
+
+  required_version = "1.17.1" # Latest version I installed
 }
 
-# Provider Docker/Podman
+# Provider Docker/Podman that connects to my daemon
+# Note: This is hardcoded better would be unix://${XDG_RUNTIME_DIR}/podman/podman.sock via a variable.
 provider "docker" {
   host = "unix:///run/user/1000/podman/podman.sock"
 }
 
-# Isolated network for the containers
+# Isolated network for the containers (The containers can still reach internet)
 resource "docker_network" "devsecops_net" {
   name = "devsecops-net"
 }
@@ -23,34 +32,34 @@ resource "docker_volume" "lab_logs" {
   name = "logs"
 }
 
-# Images 
+# Images with fixed versions as in October 2026 
 resource "docker_image" "juiceshop" {
-  name         = "bkimminich/juice-shop:latest"
+  name         = "bkimminich/juice-shop:20.3.0"
   keep_locally = true
 }
 
 resource "docker_image" "mysql" {
-  name         = "mysql:8.0"
+  name         = "mysql:8.4" # LTS version
   keep_locally = true
 }
 
 resource "docker_image" "waf" {
-  name         = "owasp/modsecurity-crs:nginx"
+  name         = "owasp/modsecurity-crs:4.30.0-nginx"
   keep_locally = true
 }
 
 resource "docker_image" "loki" {
-  name         = "grafana/loki:latest"
+  name         = "grafana/loki:3.7.8"
   keep_locally = true
 }
 
 resource "docker_image" "grafana" {
-  name         = "grafana/grafana:latest"
+  name         = "grafana/grafana:13.3.0"
   keep_locally = true
 }
 
 resource "docker_image" "alloy" {
-  name         = "grafana/alloy:latest"
+  name         = "grafana/alloy:1.21.2"
   keep_locally = true
 }
 
