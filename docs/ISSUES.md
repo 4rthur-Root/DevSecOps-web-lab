@@ -348,7 +348,7 @@ Podman has a native secrets mechanism that mounts the secret as an in-memory fil
 echo "My_@password" | podman secret create mysql_root_password -
 
 # Reference in the container (via --secret, not --env)
-podman run --secret mysql_root_password,type=env,target=MYSQL_ROOT_PASSWORD mysql:8.0
+podman run --secret mysql_root_password,type=env,target=MYSQL_ROOT_PASSWORD mysql:8.4
 ```
 
 #### 3. HashiCorp Vault (Enterprise approach)

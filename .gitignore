@@ -1,6 +1,6 @@
 # Terraform
 .terraform/
-.terraform.lock.hcl
+#.terraform.lock.hcl
 terraform.tfstate
 terraform.tfstate.backup
 *.tfvars
@@ -19,3 +19,6 @@ continuer.txt
 
 # Draw.io
 .$*
+
+# Other 
+exp.md
