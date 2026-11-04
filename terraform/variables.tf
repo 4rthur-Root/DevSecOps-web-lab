@@ -1,3 +1,5 @@
+# Critical passwords 
+
 variable "mysql_root_password" {
   type        = string
   description = "Password for MySQL root user"

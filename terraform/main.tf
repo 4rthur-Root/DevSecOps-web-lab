@@ -46,6 +46,7 @@ resource "docker_image" "mysql" {
 resource "docker_image" "waf" {
   name         = "owasp/modsecurity-crs:4.30.0-nginx"
   keep_locally = true
+  depends_on = [ docker_container.juiceshop ]
 }
 
 resource "docker_image" "loki" {
@@ -61,9 +62,10 @@ resource "docker_image" "grafana" {
 resource "docker_image" "alloy" {
   name         = "grafana/alloy:1.21.2"
   keep_locally = true
+  depends_on = [ docker_container.juiceshop, docker_container.mysql, docker_container.waf ]
 }
 
-# Juice Shop 
+# Juice Shop (No volume here)
 resource "docker_container" "juiceshop" {
   name  = "juiceshop"
   image = docker_image.juiceshop.image_id
