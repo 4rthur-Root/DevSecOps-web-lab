@@ -22,3 +22,5 @@ continuer.txt
 
 # Other 
 exp.md
+# Temporarly exclude CI
+.github/ 
