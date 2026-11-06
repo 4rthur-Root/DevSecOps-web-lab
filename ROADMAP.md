@@ -1,260 +1,410 @@
-# DevSecOps Web Lab - Roadmap V3
+# DevSecOps Web Lab - Roadmap 
 
-> **Supersedes `V2_ROADMAP.md`** (kept as a historical record).
-> English-only · Ordered by **SOC portfolio value**, not by infrastructure convenience.
-> Last updated: 2026-10-19
+> **Terraform + Ansible remain the foundation. Purple Team is the story.**
+> English-only · Last updated: 2026-11-05
 
-## Objective
+## 0. Purpose
 
-Turn the lab into a **complete, demonstrable SOC workflow**: detect → alert → investigate →
-document → improve - on top of the DevSecOps foundation (IaC, WAF, hardening) that is already solid.
+This lab started as an Infrastructure-as-Code demonstration. It stays one - but the narrative is
+now **Purple Team**:
 
-Final result: a portfolio where you can say *"I detected it, I investigated it, I documented the
-IOC, I proposed the fix"* - and show the files that prove it.
+> Deploy the stack **as-is** → attack it from Kali → detect it in Grafana/Loki → document it with
+> MITRE ATT&CK and IOCs → harden it with Ansible → **replay the exact same attacks** → compare the
+> two runs → investigate the delta.
 
----
+The portfolio answer is no longer *"I deployed six containers"*. It is:
 
+> *"I built a lab, I attacked it, I detected it, I hardened it, and I can prove the before/after
+> with timestamps, logs, and reports."*
 
-## V3 Phases (SOC-priority order)
-
-### Phase 0 - Documentation consistency · *~1 hour · trust gate*
-
-Nothing else matters if the README lies.
-
-- [ ] `README.md`: Promtail → **Alloy**, 5 → **6 containers**, `attack_simulation/` → `scripts/attacks/`,
-      `tests.sh` → `scripts/installs.sh`, fix broken image path `docs/evidences/bunch/bunch/...`
-- [ ] `docs/incident-report.md`: conclusion says Promtail → Alloy
-- [ ] `docs/Resources.md`: current-stack mentions → Alloy (historical Promtail refs annotated)
-- [ ] `docs/README.md`: fill the empty docs index
-
-**DoD:** every claim in the docs matches `terraform/main.tf` and `docs/architecture.md`.
+**What this roadmap is not:** a SIEM, a production platform, a CI/CD project, or a red-team tooling
+course. Those are mentioned as next steps, not implemented.
 
 ---
 
-### Phase 1 - Detection content: MITRE ATT&CK + IOC · *own deliverable*
+## 1. Principles
 
-The mapping must be **yours**, not copied from MITRE's site.
+1. **Two runs, one script.** Red and Blue use the same frozen attack script (`attack-v1`). Never
+   rewrite it between runs.
+2. **Everything is timestamped in UTC ISO 8601** (`2026-11-05T14:00:00Z`), with a `run-id`, the Git
+   commit, and the script SHA-256.
+3. **Evidence over claims.** Every statement in a report links to a log line, a JSONL result, or a
+   screenshot.
+4. **The README is written last** (Phase 7), when the results are known.
+5. **MySQL is an independent target**, not Juice Shop's database. Both write logs to the same
+   volume; that is the only relationship.
+6. **Detection before prevention.** The Red run uses the WAF in `DetectionOnly`; the Blue run turns
+   it to `On`. This is the whole point of the comparison.
+7. **Simple beats impressive.** One dashboard, two alerts, one channel, two reports.
 
-- [ ] `scripts/attacks/{attack_name}.sh`: print ATT&CK technique per phase + summary table
-- [ ] `docs/incident-report.md`:
-  - Technique column added to the kill-chain timeline table
-  - New **Indicators of Compromise** section: source IP, `curl/` User-Agent, SQLi/XSS/LFI
-    payload strings, timestamps, returned status codes
-  - Mark recommendation *"Grafana alert on 403 spike"* as ✅ implemented (after Phase 2)
+### What changed from the old V3
 
-**DoD:** a recruiter can open one file and see technique ↔ log line ↔ IOC ↔ remediation.
+| Old V3 | This roadmap |
+|---|---|
+| SOC-only, 7 phases, 4 alert rules, Discord **and** Telegram | Purple-first, 8 phases, 2 alerts, one channel |
+| Attacker container + Kali guide | Kali VM + bash/python/curl, no extra container |
+| 3 incident reports | 2 reports (Red + Blue) |
+| CI + Trivy as a phase | Mentioned as a production next step |
+| Referenced deleted files (`V2_ROADMAP.md`, `.github/`, `attacker/`, `detect/`) | Only current files |
+| No before/after methodology | Frozen script + two runs + comparison table |
 
 ---
 
-### Phase 2 - Alerting: Discord + Telegram · *SOC core*
+## 2. Phase 0 - Make the stack actually deployable (blockers)
 
-All via **Grafana file provisioning in Terraform** (no manual UI work). Schema verified against
-official Grafana provisioning docs (2026-10).
+> **Do this first. Nothing else is credible if `make deploy` fails.**
 
-New files under `terraform/grafana_provisioning/alerting/` - **3 separate files** so one bad
-contact point can't break rule provisioning:
+### 2.1 Image tags that do not exist
 
-**`alert_rules.yml`** - folder `SOC`, group `waf-detections`, interval 1m:
+Verified against Docker Hub on 2026-11-05. Three pinned tags are wrong, so `terraform apply` fails
+at pull time:
 
-| Rule UID | Query (LogQL) | Threshold | For | Severity |
-|---|---|---|---|---|
-| `waf-403-spike` | `sum(count_over_time({job="waf"} \|= "403" [1m]))` | > 10 | 1m | high |
-| `waf-block-ratio` | `(sum(count_over_time({job="waf"} \|= "403" [5m])) / sum(count_over_time({job="waf"} [5m]))) * 100` | > 50 | 1m | critical |
-| `auth-bruteforce` | `sum(count_over_time({job="waf"} \|= "401" [1m]))` | > 10 | 1m | high |
-| `traffic-scan-spike` | `sum(count_over_time({job="waf"} [1m]))` | > 60 | 1m | medium |
+| Resource | Current (broken) | Correct tag | Status |
+|---|---|---|---|
+| Juice Shop | `bkimminich/juice-shop:20.3.0` | `bkimminich/juice-shop:v20.3.0` | 404 → 200 |
+| Alloy | `grafana/alloy:1.21.2` | `grafana/alloy:v1.21.2` | 404 → 200 |
+| OWASP CRS | `owasp/modsecurity-crs:4.30.0-nginx` | `owasp/modsecurity-crs:4.30.0-nginx-202610180210` | 404 → 200 |
+| Grafana | `grafana/grafana:13.3.0` | unchanged | 200 |
+| Loki | `grafana/loki:3.7.8` | unchanged | 200 |
+| MySQL | `mysql:8.4` | unchanged | 200 |
 
-- All aggregated → single series (multi-series-safe), `noDataState: OK`, `execErrState: Alerting`
-- No secrets in `data.model` (the only field env interpolation doesn't touch)
+- [ ] Fix the three tags in `terraform/main.tf`.
+- [ ] Run `terraform init` and commit `.terraform.lock.hcl` (currently ignored).
+- [ ] Relax `required_version = "1.17.1"` to `>= 1.5`.
+- [ ] Remove the `depends_on` on `docker_image` resources (images do not depend on containers).
 
-**`contact_points_discord.yml` / `contact_points_telegram.yml`** (split for failure isolation):
+**DoD:** `terraform apply` pulls all six images and starts all six containers.
 
-```yaml
-settings:
-  url: $SOC_DISCORD_WEBHOOK_URL          # env interpolation - supported
-  # telegram: bottoken: $SOC_TELEGRAM_BOT_TOKEN / chatid: $SOC_TELEGRAM_CHAT_ID
+### 2.2 SELinux blocks every bind mount from the repo (verified)
+
+Environment: Fedora, SELinux **Enforcing**, rootless Podman. The repo is labelled `user_home_t`;
+containers run as `container_t` and are denied.
+
+Reproduction (verified on this machine):
+
+```bash
+podman run --rm -v "$PWD/terraform/grafana_provisioning:/x:ro" busybox ls /x
+# ls: can't open '/x': Permission denied
+
+podman run --rm --security-opt label=disable \
+  -v "$PWD/terraform/grafana_provisioning:/x:ro" busybox ls /x
+# dashboards  datasources
 ```
 
-**`notification_policies.yml`** - routing that degrades gracefully:
+Affected mounts:
 
-- Root → `soc-discord` (fallback, gets everything)
-- First child route → `soc-telegram`, `continue: true`, matcher `['severity','=~','critical|high']`
-- Second sibling → `soc-discord` (match-all): **Discord is always notified even if the
-  Telegram token is empty**
-
-**Supporting changes:**
-- [ ] `loki_datasource.yml`: add explicit `uid: loki` (stable UID for rule references)
-- [ ] `terraform/variables.tf`: 3 sensitive vars (default `""`) + `enable_attacker` (default `false`)
-- [ ] New `terraform/example.tfvars` (already whitelisted in `.gitignore`)
-- [ ] `terraform/main.tf`: mount `alerting/` → `/etc/grafana/provisioning/alerting`, pass env vars
-- [ ] `Makefile`: `alert-test` (curls the Discord webhook read from tfvars → instant verification),
-      `validate` (fmt -check, terraform validate, ansible syntax-check, shellcheck -S error)
-
-**DoD:** `make deploy && make alert-test` → test message in Discord; launching an attack produces
-an alert in Discord/Telegram within ~1–2 minutes.
-
----
-
-### Phase 3 - Investigation workflow · *dashboard + attack script*
-
-**New `terraform/grafana_provisioning/dashboards/investigation.json`:**
-- [ ] Raw WAF log stream panel with `$job` / status filters
-- [ ] Top 10 blocked IPs: `topk(10, sum by (remote_addr) (count_over_time({job="waf"} |= "403" [$__range])))`
-- [ ] Suspicious User-Agents: `topk(10, count by (http_user_agent) (count_over_time({job="waf"} [$__range])))`
-- [ ] Timeline for a specific source IP (`$ip` variable) - pivot from alert → dashboard
-
-**`scripts/attacks/` extensions:**
-- [ ] Per-phase MITRE output (from Phase 1)
-- [ ] **Phase 6 - Brute force:** 12× bad `POST /rest/user/login` → 401s → trips `auth-bruteforce`
-- [ ] **Phase 7 - Recon/scan:** `nmap` when available, `/dev/tcp` probes otherwise (graceful fallback)
-- [ ] `TARGET=` env override so the script runs inside the attacker container (`http://waf:8080`)
-
-**Investigation methodology** (documented in `docs/`):
-`IDENTIFY → CONTAIN → ERADICATE → RECOVER → LESSONS` - applied in the incident reports.
-
-**DoD:** one alert → open dashboard → pivot by IP → timeline reproduced, in under 5 minutes.
-
----
-
-### Phase 4 - Incident reports ×2 · *the SOC proof*
-
-New `docs/incident-reports/`, mirroring the existing report's structure:
-
-- [ ] `..._bruteforce_login.md` (triage of `auth-bruteforce`)
-- [ ] `..._portscan_recon.md` (triage of `traffic-scan-spike`)
-
-Each: executive summary, timeline, ATT&CK mapping, LogQL investigation, IOC table, RCA,
-corrective actions, lessons learned - **honestly labeled as controlled simulations**, with
-`<!-- EVIDENCE: screenshot -->` placeholders + a capture checklist (you run the simulation,
-I don't fabricate timestamps).
-
-**DoD:** 3 incident reports total in the portfolio (SQLi campaign + these two).
-
----
-
-### Phase 5 - CI + supply chain
-
-**Image pinning** (tags verified on Docker Hub, 2026-10-19):
-
-| Image | Pin | Note |
+| Container | Host path | Symptom |
 |---|---|---|
-| `grafana/grafana` | `13.2.4` | byte-identical to current `latest` digest |
-| `grafana/loki` | `3.6.18` | |
-| `grafana/alloy` | `v1.21.0` | |
-| `bkimminich/juice-shop` | `v20.3.0` | |
-| `mysql` | `8.0.46` | |
-| `owasp/modsecurity-crs` | stays `nginx` ⚠️ | changing CRS version blind changes rule behavior - **pin by digest after validating the deployed image** (`podman inspect waf`) - tracked as backlog |
+| Grafana | `terraform/grafana_provisioning/{datasources,dashboards}` | no datasource, no dashboard |
+| Alloy | `ansible/files/alloy/config.alloy` | Alloy cannot start / no pipeline |
+| MySQL | `terraform/init.sql` | database not initialised |
 
-**New `.github/workflows/ci.yml`:**
-- [ ] `terraform fmt -check` + `terraform validate`
-- [ ] `ansible-playbook --syntax-check` (+ new `ansible/collections/requirements.yml`)
-- [ ] `shellcheck -S error`
-- [ ] Trivy scan of the images - **informational only** (`continue-on-error`; Juice Shop is
-      deliberately vulnerable)
+`chmod -R a+rX` fixes UID 472 traversal but **does not fix SELinux**. It is necessary, not
+sufficient.
 
-**DoD:** green badge on the repo; a broken playbook or unformatted Terraform fails the PR.
+- [ ] Add `security_opts = ["label=disable"]` to `grafana`, `alloy`, and `mysql` in
+      `terraform/main.tf`.
+  - Provider v3 supports `security_opts`.
+  - Provider v4 adds `selinux_relabel = "z"` on the `volumes` block, which is cleaner if you
+    upgrade.
+- [ ] Keep the `chmod -R a+rX terraform/grafana_provisioning` step in the Makefile.
+- [ ] Document `make deploy` as the only supported entry point: a raw `terraform apply` skips the
+      `chmod` and fails on a restrictive umask.
+- [ ] Document the trade-off in the README: lab-only; production would bake configs into images or
+      use `:z`.
 
----
+**DoD:** Grafana reads its provisioning folders, Alloy reads its config, MySQL reads `init.sql`.
 
-### Phase 6 - Attacker infrastructure · *replaces V2's Kali phase*
+### 2.3 Grafana provisioning: what actually works (verified)
 
-- [ ] `attacker/Dockerfile`: `debian:bookworm-slim` + `nmap sqlmap curl`
-- [ ] Terraform resources gated by `enable_attacker = false` → **zero risk to existing deploys**
-- [ ] `Makefile`: `make attack-remote` (script mounted read-only, target `http://waf:8080`)
-- [ ] New **`docs/attacker.md`**: Kali VM guide - host-only/bridged networking, target
-      `http://<host-ip>:8080`, verify bind address (`ss -tlnp | grep 8080`), SSH port-forward
-      fallback if the engine binds to localhost; **no attack tools on the host**
+Reproduction (verified on this machine):
 
-**Attack matrix** (corrected to OWASP **2025**):
+```bash
+podman run -d --name gtest --security-opt label=disable -p 3002:3000 \
+  -e GF_SECURITY_ADMIN_PASSWORD=test \
+  -v "$PWD/terraform/grafana_provisioning/datasources:/etc/grafana/provisioning/datasources:ro" \
+  -v "$PWD/terraform/grafana_provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro" \
+  grafana/grafana:13.3.0
 
-| Attack | Tool (attacker only) | OWASP 2025 | MITRE | Expected result |
-|---|---|---|---|---|
-| SQL Injection | sqlmap (container/Kali) | A05:2025 Injection | T1190 | Blocked (403) |
-| Reflected XSS | curl | A05:2025 Injection | T1189 | Blocked (403) |
-| Path traversal / LFI | curl | A01:2025 Broken Access Control | T1083 | Blocked (403) |
-| Command injection | curl | A05:2025 Injection | T1059 | Blocked (403) |
-| Login brute force | script Phase 6 | A07:2025 Auth Failures | T1110.001 | Detected (401 spike) |
-| Port scan | nmap / /dev/tcp | N/A | T1046 | Detected (volume spike) |
-| Recon burst | curl (script Phase 1) | N/A | T1595.002 | Visible in logs |
-
-**DoD:** full attack run executed **from the attacker container/VM**, alert received, dashboard
-pivot works - then evidence captured for Phase 7.
-
----
-
-### Phase 7 - Packaging & presentation
-
-- [ ] **`detect/README.md`**: the 4 LogQL alert rules - expression, threshold, ATT&CK technique,
-      triage steps (reusable detection content recruiters actually read)
-- [ ] **`README.md` rewrite**: accurate architecture (Mermaid), 3-command quickstart, alerting
-      section, incident-report index, skills demonstrated, technologies
-- [ ] **Evidence capture pass**: alert in Discord, investigation dashboard pivots, kill-chain
-      screenshots → `docs/evidences/`
-- [ ] **Demo**: GIF (or short video) of attack → alert → dashboard → report
-- [ ] Commit sequence: one commit per phase (easy to review, shows process)
-
-**Final structure:**
-
-```
-DevSecOps-web-lab/
-├── terraform/                    # infra + grafana_provisioning (dashboards + alerting)
-├── ansible/                      # WAF / DB / Alloy configuration
-├── attacker/                     # attacker container image (tools OFF the host)
-├── scripts/
-│   ├── installs.sh
-│   └── attacks/                  # kill chain (7 phases, MITRE-mapped)
-├── detect/                       # alert rules as documentation (LogQL + triage)
-├── docs/
-│   ├── incident-report.md        # SQLi campaign (original)
-│   ├── incident-reports/         # brute force + port scan
-│   ├── attacker.md               # Kali VM guide
-│   ├── ISSUES.md · architecture.md · Resources.md · README.md (index)
-│   └── evidences/
-├── .github/workflows/ci.yml
-├── ROADMAP_V3.md                 # this file
-├── V2_ROADMAP.md                 # historical
-└── README.md
+# wait ~90 s for the SQLite migrations, then:
+curl -s -u admin:test http://localhost:3002/api/datasources
+curl -s -u admin:test http://localhost:3002/api/dashboards/uid/security-overview
+podman rm -f gtest
 ```
 
+Result:
+
+- `loki_datasource.yml` → datasource **Loki** created, `isDefault: true`.
+- `dashboard_provider.yml` + `security_overview.json` → dashboard **security-overview** created.
+- The provider YAML sitting in the same folder is ignored: Grafana only reads `.json` files
+  (verified in `file_reader.go`). No need to move it.
+- First boot takes ~90 s (SQLite migrations). The dashboard appears after that.
+
+Remaining hardening:
+
+- [ ] Add `uid: loki` to `loki_datasource.yml` (stable UID; currently auto-generated).
+- [ ] Add `"datasource": {"type": "loki", "uid": "loki"}` and `"refId": "A"` to each panel target.
+- [ ] Set `"timezone": "utc"` in the dashboard (SOC timestamps).
+- [ ] Set `allowUiUpdates: false` and `disableDeletion: true` in `dashboard_provider.yml` once the
+      dashboard is stable (GitOps, no drift).
+- [ ] Add a Grafana healthcheck or document the ~90 s first-boot wait.
+- [ ] Delete the duplicate `grafana/dashboards/security-dashboard.json`; the single source of truth
+      is `terraform/grafana_provisioning/dashboards/security_overview.json`.
+
+Note: `meta.provisioned` was `false` in the 13.3.0 API even though `provisionedExternalId` was set.
+Cosmetic; the dashboard is served. Do not chase it.
+
+**DoD:** after `make deploy`, `http://localhost:3001` shows the Security Overview dashboard with the
+Loki datasource, without any manual click.
+
+### 2.4 Ansible bugs to fix before the first attack
+
+- [ ] **MySQL handler**: `when: ansible_service_mgr == 'systemd'` with `gather_facts: false` →
+      undefined variable. Restart the container from the host
+      (`community.docker.docker_container` with `state: restarted`) or drop the handler. MySQL in a
+      container is PID 1; systemd is not the answer.
+- [ ] **`SecDefaultAction` loop**: `lineinfile` with `regexp: '^SecDefaultAction'` replaces the same
+      (last) line twice. Phase 1 stays `pass`. Use two distinct regexps
+      (`^SecDefaultAction "phase:1` and `^SecDefaultAction "phase:2`).
+- [ ] **`curl` path traversal**: add `--path-as-is`, otherwise curl normalises `../` and the test
+      proves nothing.
+- [ ] **`no_log: true`** on every task that manipulates `mysql_root_password`, `app_password`, or
+      vault variables.
+- [ ] **DB naming**: `MYSQL_DATABASE=juiceshop` and `app_database: juiceshop` imply a link that does
+      not exist. Rename to a neutral lab database (e.g. `bank_lab`) or rely on `init.sql`.
+- [ ] **`gather_facts: false` + `ansible_service_mgr`** is a general trap; check every handler.
+
+**DoD:** `ansible-playbook --syntax-check` passes, and a full `site.yml` run ends green.
+
+### 2.5 Repo hygiene
+
+- [ ] Fill `docs/reports/template.md` (it is empty).
+- [ ] Rebuild `docs/evidences/` during Phase 2/6 (it is empty; every README image is currently
+      broken).
+- [ ] Do **not** patch `README.md` now; it is rewritten in Phase 7.
+- [ ] Keep `docs/ISSUES.md` as the RCA log; add the new findings above to it.
+
+**Phase 0 DoD:** `make deploy` works from a clean clone; Grafana shows the dashboard;
+`make configure` is green; the three blockers are documented.
+
 ---
 
-## Part 3 - Backlog (explicitly out of scope now)
+## 3. Conventions
 
-- Pin `owasp/modsecurity-crs` by digest after validating current deployment
-- MySQL query-log threat detection rules (T1059 in SQL logs)
-- Grafana → Telegram fully populated (currently provisioned, needs bot token in tfvars)
-- Kali VM run-through with evidence (Phase 6 manual step)
-- Optional: Grafana OnCall / alert on `waf_errors` job
-- Video demo if GIF feels too small
+```text
+runs/
+  red-20261105T140000Z/
+    meta.json          # git commit, image tags, script sha256, profile, start/end UTC
+    results.jsonl      # one line per attack
+    raw/               # curl/sqlmap/nmap raw output
+    screens/           # timestamped screenshots
+  blue-20261107T090000Z/
+    ...
+docs/evidences/<run-id>/   # published evidence
+```
+
+- `run-id`: `red-<UTC>` / `blue-<UTC>`.
+- User-Agent marker: `Lab-Run/<run-id>` → direct LogQL filter.
+- Git tags: `baseline-v1`, `attack-v1`, `hardened-v1`.
+- Report names: `docs/reports/red-2026-11-05.md`, `docs/reports/blue-2026-11-07.md`.
+- Timestamps: `2026-11-05T14:00:00Z`, never local time.
+- Evidence: no fabricated timestamps, no uncropped secrets.
 
 ---
 
-## Timeline
+## 4. The Purple Loop
 
-| Week | Focus | Deliverables |
-|------|-------|--------------|
-| **S1** | Phases 0–2 | Docs truthful, ATT&CK/IOC mapped, **alerting live on Discord** |
-| **S2** | Phases 3–4 | Investigation dashboard, script v2, 2 incident reports (evidence placeholders) |
-| **S3** | Phases 5–6 | CI green, images pinned, attacker container + Kali guide |
-| **S4** | Phase 7 | README rewrite, evidence capture, demo GIF |
+### Phase 1 - Baseline "as-is" + observability (1 day)
 
-**~15–25 hours** if evidence capture (Phase 6–7 manual runs) goes smoothly.
+**Goal:** deploy the vulnerable state, but make the traffic visible.
+
+- [ ] Split Ansible into two explicit profiles:
+  - `baseline.yml`: `setup-python` + Nginx JSON logs + symlink replacement. No ModSecurity change,
+    no DB hardening.
+  - `hardening.yml`: `waf-setup.yml` (blocking) + `db-hardening.yml`.
+  - `site.yml`: `baseline` + `hardening` + `monitoring.yml` (full).
+  - Extract the log tasks into `waf-logs.yml` and import it from `baseline.yml` and
+    `waf-setup.yml` to avoid duplication.
+- [ ] Keep the WAF in `DetectionOnly` in Terraform for the baseline
+      (`MODSEC_RULE_ENGINE=DetectionOnly`). The hardening playbook flips it to `On`.
+- [ ] `make baseline` → 6 containers, WAF reachable on `:8080`, Grafana on `:3001`.
+- [ ] Generate traffic (`curl http://localhost:8080/...`) and verify it appears in Grafana.
+- [ ] Capture `runs/red-<id>/meta.json` and tag `baseline-v1`.
+
+**DoD:** traffic passes, logs are visible in Loki/Grafana, the baseline is reproducible and tagged.
+
+### Phase 2 - Red run: timestamped attacks from Kali (1.5 days)
+
+**Goal:** produce raw, timestamped evidence from the attacker side.
+
+- [ ] Web axis: recon, SQLi, XSS, LFI (`--path-as-is`), command injection, login brute force.
+- [ ] DB axis (independent target): direct `3306`, anonymous account, `root@%`, TLS requirement,
+      `local-infile`.
+- [ ] `scripts/attacks/killchain.sh`: `set -euo pipefail`, `TARGET=`, `RUN_ID=`, `OUT_DIR=`, JSONL
+      output.
+- [ ] Every request carries `User-Agent: Lab-Run/<run-id>`.
+- [ ] Save raw outputs + screenshots under `runs/<run-id>/`.
+- [ ] **Freeze**: commit, tag `attack-v1`, record the SHA-256 in `meta.json`.
+
+**DoD:** every attack has a UTC timestamp, a status code, and a raw artifact; the script is frozen.
+
+### Phase 3 - Detection & SOC visibility (1 day)
+
+**Goal:** prove every Red attack is findable in Grafana.
+
+- [ ] LogQL queries per attack (payload in `uri`, `403`, `401`, volume).
+- [ ] One dashboard, 4 panels max: volume, 4xx/403, top URIs, top IP/User-Agent.
+- [ ] **2 alerts max**, one channel (Discord webhook):
+  - `waf-403-spike`: `sum(count_over_time({job="waf"} |= "403" [1m])) > 10` for 1m.
+  - `auth-bruteforce`: `sum(count_over_time({job="waf"} |= "401" [1m])) > 10` for 1m.
+- [ ] Optional third: `scan-spike` (volume > 60/min) - only if it stays simple.
+- [ ] Provision the alerting files under `terraform/grafana_provisioning/alerting/`
+      (`contact_points.yml`, `alert_rules.yml`, `notification_policies.yml`) and mount the folder in
+      `terraform/main.tf`.
+- [ ] Keep the Discord webhook in `terraform.tfvars` / an environment variable, never in Git.
+- [ ] Verify the Red timeline at an absolute UTC range.
+
+**DoD:** the Red run can be reconstructed in Grafana in under 5 minutes.
+
+### Phase 4 - Red report (1 day)
+
+**Goal:** the SOC deliverable for the attack side.
+
+- [ ] `docs/reports/red-<date>.md`: executive summary, scope, methodology, UTC timeline.
+- [ ] OWASP Top 10 2025 + MITRE ATT&CK mapping (6–8 techniques max).
+- [ ] IOC table: source IP, User-Agent, payloads, timestamps, HTTP codes.
+- [ ] References to `runs/<run-id>/...`.
+- [ ] Findings: what passes, what is visible, what is not blocked.
+
+**DoD:** one line = attack → timestamp → log line → technique → result.
+
+### Phase 5 - Blue hardening with Ansible (1 day)
+
+**Goal:** harden through code, not manual clicks.
+
+- [ ] `make harden` → `hardening.yml` (WAF `On`, `deny:403`, exclusions, DB hardening).
+- [ ] WAF: `SecRuleEngine On`, both `SecDefaultAction` phases, targeted exclusions.
+- [ ] DB: anonymous users, `root@%`, `validate_password`, TLS, `local-infile=0`, least privilege.
+- [ ] Keep MySQL reachable on `3306` for the Blue run so the same attack can be replayed; the delta
+      is auth/TLS, not reachability. Restrict the port after the comparison if desired.
+- [ ] Hygiene: `no_log`, secrets, documented `bind-address`.
+- [ ] Tag `hardened-v1` + `runs/blue-<id>/meta.json` (same fields as Red).
+
+**DoD:** WAF blocks, DB is hardened, legitimate traffic is not regressed, everything is versioned.
+
+### Phase 6 - Blue run + comparative investigation (1.5 days)
+
+**Goal:** the final proof.
+
+- [ ] Replay **the same `attack-v1`**, same payloads, new `run-id`.
+- [ ] Comparison table:
+
+| Attack | Red timestamp | Red status | Detected? | Blue timestamp | Blue status | Blocked? | Delta |
+|---|---|---|---|---|---|---|---|
+
+- [ ] `docs/reports/blue-<date>.md`: investigation, before/after, RCA, remediation validation,
+      lessons.
+- [ ] Grafana screenshots at both absolute time ranges.
+
+**DoD:** the comparison is readable and the attack script was not modified.
+
+### Phase 7 - Final README & packaging (1 day)
+
+**Goal:** write the showcase only now.
+
+- [ ] `README.md`: real architecture, 4-command quickstart (`make baseline`,
+      `make attack RUN_ID=red-...`, `make harden`, `make attack RUN_ID=blue-...`), Red vs Blue
+      results, screenshots, skills.
+- [ ] `docs/README.md` + `docs/reports/README.md` complete.
+- [ ] Evidence index; no broken links.
+- [ ] Optional: demo GIF.
+- [ ] Every README claim is backed by a file.
+
+**DoD:** a recruiter follows Red → Blue → report in under 10 minutes.
 
 ---
 
-## What the portfolio demonstrates
+## 5. Attack matrix
 
-1. **Infrastructure as Code** - Terraform + Ansible (already achieved)
-2. **WAF engineering** - ModSecurity + CRS, false-positive tuning, blocking mode
-3. **Detection engineering** - 4 LogQL alert rules with thresholds & severities (file-provisioned)
-4. **Alert routing** - Discord/Telegram webhooks, graceful-degradation policy tree
-5. **Investigation** - dashboard pivots, IOC extraction, ATT&CK mapping
-6. **Incident response** - 3 structured reports, RCA, corrective actions
-7. **Offensive context** - 7-phase attack simulation, tools isolated from the host
-8. **Engineering hygiene** - CI, pinned images, shellcheck/ansible-lint
+| Axis | Attack | Tool | OWASP 2025 | MITRE | Red expected | Blue expected |
+|---|---|---|---|---|---|---|
+| Web | Recon | curl/ffuf | A02 | T1595.002 | 200 / paths visible | 403 / filtered |
+| Web | SQL injection | curl/sqlmap | A05 | T1190 | 200 (passes) | 403 |
+| Web | XSS | curl | A05 | T1189 | 200 (passes) | 403 |
+| Web | LFI / path traversal | curl `--path-as-is` | A01 | T1083 | 200 (passes) | 403 |
+| Web | Command injection | curl | A05 | T1059 | 200 (passes) | 403 |
+| Web | Login brute force | python/curl | A07 | T1110.001 | repeated 401 | 401 + alert |
+| Network | Port scan | nmap | - | T1046 | visible | visible + alert |
+| DB | Auth / anonymous / TLS | mysql client | A07/A02 | T1110 | connection possible | refused |
 
-## Honest limits (keep saying this in interviews)
+---
 
-- Not a real SIEM (Splunk/QRadar) - same workflow, miniature scale
-- Single subnet, no DMZ, no production data
-- Juice Shop is **deliberately vulnerable** - the "incident" is simulated by design
-- No automated remediation - response is manual, on purpose (to learn the steps)
+## 6. What the portfolio demonstrates
+
+1. **Infrastructure as Code** - Terraform + Ansible, reproducible from a clean clone.
+2. **WAF engineering** - ModSecurity + CRS, blocking mode, false-positive tuning.
+3. **Detection engineering** - LogQL queries, two alert rules, thresholds.
+4. **Alert routing** - one webhook, simple and reliable.
+5. **Investigation** - dashboard pivots, IOC extraction, ATT&CK mapping.
+6. **Incident response** - two structured reports, RCA, corrective actions.
+7. **Purple Team** - same attack, two states, measurable delta.
+8. **Engineering hygiene** - pinned images, frozen scripts, UTC timestamps, evidence.
+
+---
+
+## 7. Explicitly out of scope
+
+Mention these in the README as "production next steps", do not implement them:
+
+- CI/CD (GitHub Actions, `terraform fmt`, `ansible-lint`, `shellcheck`, Trivy).
+- Dedicated attacker container (Kali VM + bash/python/curl is enough).
+- Telegram **and** Discord (one channel only).
+- Three or four alert rules (two is enough).
+- Three or more incident reports (two is enough).
+- Advanced investigation dashboard (four panels is enough).
+- SIEM (Wazuh/Splunk), Sigma rules, SOAR.
+- Automated remediation (response is manual, on purpose).
+- Rewriting the kill chain between Red and Blue (**forbidden**).
+
+---
+
+## 8. Definition of Done (global)
+
+- [ ] `make deploy` works from a clean clone.
+- [ ] Grafana provisions the datasource and dashboard without manual clicks.
+- [ ] Two runs, same script, same payloads, UTC timestamps.
+- [ ] One Red/Blue comparison table.
+- [ ] Two reports (Red + Blue) with MITRE + IOC.
+- [ ] One dashboard + two alerts.
+- [ ] One final README, accurate.
+- [ ] No secrets, no uncropped evidence.
+- [ ] `terraform fmt -check` and `ansible-playbook --syntax-check` pass locally.
+
+---
+
+## 9. Timeline
+
+| Phase | Duration |
+|---|---|
+| 0 - Deployability blockers | 1 day |
+| 1 - Baseline | 1 day |
+| 2 - Red run | 1.5 days |
+| 3 - Detection | 1 day |
+| 4 - Red report | 1 day |
+| 5 - Blue hardening | 1 day |
+| 6 - Blue run + report | 1.5 days |
+| 7 - README & packaging | 1 day |
+| **Total** | **~9 days** |
+
+---
+
+## 10. Honest limits
+
+- Not a real SIEM (Splunk/QRadar); same workflow, miniature scale.
+- Single host, single subnet, no DMZ, no production data.
+- Juice Shop is deliberately vulnerable; the incident is simulated by design.
+- No automated remediation; response is manual, on purpose.
+- Grafana/Loki have no TLS or SSO in this lab.
+- MySQL is exposed on `3306` for the Red run; the Blue run documents the restriction.
+- `general_log = 1` is useful for DB attack detection but logs sensitive data; production would use
+  the audit plugin and scrub secrets.
